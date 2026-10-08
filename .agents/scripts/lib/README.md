@@ -22,6 +22,7 @@ x-toml-ref: "../../../.meta/toml/.agents/scripts/lib/README.toml"
 | [docs/07-spec.md](docs/07-spec.md) | `lib.spec` | Spec 文档处理 |
 | [docs/08-checks.md](docs/08-checks.md) | `lib.checks` | 检查器框架 |
 | [docs/09-rules.md](docs/09-rules.md) | `lib.rules` | 误报过滤规则引擎 |
+| [docs/10-docs-as-product.md](docs/10-docs-as-product.md) | `lib.docs_as_product` | 文档即产品校验（Diátaxis 四型/G1-G4+V门/元数据漂移/读者契约/M1-M5） |
 | [docs/11-process.md](docs/11-process.md) | `lib.process` | 进程探测与安全终止 |
 | [docs/12-quality-rules.md](docs/12-quality-rules.md) | `lib.quality_rules` | 质量规则复用函数 |
 | [docs/13-quality-report.md](docs/13-quality-report.md) | `lib.quality_report` | 质量报告聚合与输出 |
@@ -31,7 +32,7 @@ x-toml-ref: "../../../.meta/toml/.agents/scripts/lib/README.toml"
 
 ## 文档生成
 
-- **拆分模式（当前使用）**：索引页 + 15个模块分片文档，位于 `lib/docs/` 目录
+- **拆分模式（当前使用）**：索引页 + 16个模块分片文档，位于 `lib/docs/` 目录
 - **重新生成**：运行 `python .agents/scripts/lib/api_docs.py --split`
 - **单文件预览**：运行 `python .agents/scripts/lib/api_docs.py` 输出到 stdout
 

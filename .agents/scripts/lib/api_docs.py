@@ -187,7 +187,7 @@ def write_split_docs(lib_dir: Path) -> list[Path]:
         index_lines.append(f"| [docs/{m['filename']}](docs/{m['filename']}) | `{mod_name}` | {short_title} |")
     index_lines.append("")
     index_lines.append("## 文档生成\n")
-    index_lines.append("- **拆分模式（当前使用）**：索引页 + 14个模块分片文档，位于 `lib/docs/` 目录")
+    index_lines.append(f"- **拆分模式（当前使用）**：索引页 + {len(modules)}个模块分片文档，位于 `lib/docs/` 目录")
     index_lines.append("- **重新生成**：运行 `python .agents/scripts/lib/api_docs.py --split`")
     index_lines.append("- **单文件预览**：运行 `python .agents/scripts/lib/api_docs.py` 输出到 stdout\n")
     index_lines.append("---\n")

@@ -119,6 +119,9 @@ CIRCLED_NUMBERS = {
 CIRCLED_NUMBERS_RE = re.compile('[' + ''.join(CIRCLED_NUMBERS.keys()) + ']')
 CJK_BRACKET_RE = re.compile(r'[【】]')
 BR_TAG_RE = re.compile(r'<br\s*/?>', re.IGNORECASE)
+# 反斜杠紧跟 ASCII 双引号：Mermaid 词法器不支持 C/JSON 风格 \" 转义
+# （Mermaid 10/11 双版本实测 parse error），标签内嵌套引用应改用中文弯引号
+ESCAPED_QUOTE_RE = re.compile(r'\\"')
 ARROW_SYMBOL_RE = re.compile(r'[→←↑↓↔⇒⇐⇔]')
 
 
@@ -208,6 +211,14 @@ def _check_vscode_compat(block_text: str, start_line: int) -> list[tuple[int, st
                 "error",
                 'Mermaid 代码块内使用了 <br/> HTML标签，VS Code预览不支持，应移除换行保持单行',
                 rule_id="mermaid.vscode.br_tag",
+            ))
+        if ESCAPED_QUOTE_RE.search(code_part):
+            issues.append(MermaidIssue(
+                lb,
+                "error",
+                'Mermaid 标签文本中使用了反斜杠转义双引号 \\"，词法器不支持该转义（Mermaid 10/11 均解析失败），'
+                '标签内嵌套引用请改用中文弯引号 “”',
+                rule_id="mermaid.vscode.escaped_quote",
             ))
         if CIRCLED_NUMBERS_RE.search(code_part):
             ch = CIRCLED_NUMBERS_RE.search(code_part).group()

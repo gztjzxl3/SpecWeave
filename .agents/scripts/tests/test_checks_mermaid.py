@@ -280,6 +280,94 @@ class TestVscodeCompatibility:
         assert issues[0][0] == 23
         assert "subgraph 内嵌套 direction" in issues[0][2]
 
+    @pytest.mark.parametrize(
+        "line",
+        [
+            'A["API文档+\\"先查lib\\"约定"] --> B',
+            'A -->|"API文档+\\"先查lib\\"约定"| B',
+            'subgraph group ["标题\\"嵌套"]',
+        ],
+    )
+    def test_reports_backslash_escaped_quotes(self, line):
+        issues = mm._check_vscode_compat(f"flowchart TD\n    {line}\n", 10)
+
+        assert len(issues) == 1
+        assert issues[0][0] == 11
+        assert issues[0][1] == "error"
+        assert getattr(issues[0], "rule_id", None) == "mermaid.vscode.escaped_quote"
+        assert '\\"' in issues[0][2]
+        assert "中文弯引号" in issues[0][2]
+
+    def test_escaped_quote_reported_once_per_physical_line(self):
+        block = 'flowchart TD\n    A["a\\"b"] -->|"c\\"d"| B\n'
+
+        issues = mm._check_vscode_compat(block, 1)
+
+        escaped = [i for i in issues if getattr(i, "rule_id", None) == "mermaid.vscode.escaped_quote"]
+        assert len(escaped) == 1
+        assert escaped[0][0] == 2
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            'A["普通双引号文本"] --> B',
+            'A["中文弯引号“嵌套”文本"] --> B',
+            'A -->|"...&quot;实体不命中..."| B',
+            'A["路径 C:\\\\Users 不含转义引号"] --> B',
+        ],
+    )
+    def test_accepts_quote_like_patterns_without_backslash(self, line):
+        issues = mm._check_vscode_compat(f"flowchart TD\n    {line}\n", 1)
+
+        assert not [
+            i for i in issues
+            if getattr(i, "rule_id", None) == "mermaid.vscode.escaped_quote"
+        ]
+
+    def test_ignores_escaped_quotes_inside_comments(self):
+        block = (
+            'flowchart TD\n'
+            '    %% A["整行注释 \\"不检测\\""]\n'
+            '    A["clean"] --> B %% 行尾注释 \\"不检测\\" \n'
+        )
+
+        issues = mm._check_vscode_compat(block, 1)
+
+        assert not [
+            i for i in issues
+            if getattr(i, "rule_id", None) == "mermaid.vscode.escaped_quote"
+        ]
+
+    def test_escaped_quote_is_detected_in_end_to_end_processing(self, tmp_path):
+        md_file = tmp_path / "case.md"
+        md_file.write_text(
+            '# 标题\n\n'
+            '```mermaid\n'
+            'flowchart TD\n'
+            '    A["API文档+\\"先查lib\\"约定"] --> B\n'
+            '```\n',
+            encoding="utf-8",
+        )
+
+        issues, fixes, _ = mm._process_file(md_file, tmp_path, fix=False, dry_run=False)
+
+        rule_ids = [getattr(i, "rule_id", None) for i in issues]
+        assert "mermaid.vscode.escaped_quote" in rule_ids
+
+    def test_escaped_quote_is_not_auto_fixed(self, tmp_path):
+        md_file = tmp_path / "case.md"
+        original = (
+            '```mermaid\n'
+            'flowchart TD\n'
+            '    A["API文档+\\"先查lib\\"约定"] --> B\n'
+            '```\n'
+        )
+        md_file.write_text(original, encoding="utf-8")
+
+        mm._process_file(md_file, tmp_path, fix=True, dry_run=False)
+
+        assert md_file.read_text(encoding="utf-8") == original
+
 
 class TestClassDiagram:
     """classDiagram 测试。"""

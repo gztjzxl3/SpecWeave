@@ -28,6 +28,7 @@ x-toml-ref: "../../.meta/toml/.agents/capability-registry/01-scripts.toml"
 | check-hardcode.py | Python代码硬编码检测（基于AST，支持8类硬编码：URL/路径/字符串/数值/配置/编码/正则/样式） | "硬编码检查"、"检测硬编码"、"hardcode" | 只读 | ✅ | [scripts/check-hardcode.py](../scripts/check-hardcode.py) |
 | repo-check.py | 综合检查统一入口（整合filename/gitignore/mermaid/vendor/roles五项检查） | "综合检查"、"多项目检查" | 只读 | ✅ | [scripts/repo-check.py](../scripts/repo-check.py) |
 | spec-tool.py | Spec工具统一入口（整合check/format两项检查） | "Spec检查"、"Spec格式" | 只读 | ✅ | [scripts/spec-tool.py](../scripts/spec-tool.py) |
+| docs-as-product.py | 文档即产品校验（structure/gates/metadata/contract/metrics/all 子命令；Diátaxis四型、G1-G4+V门、元数据漂移F-021、读者契约、M1-M5脚手架） | "文档即产品"、"docs-as-product"、"Diátaxis"、"文档质量门"、"元数据漂移"、"读者契约" | 只读（仅metrics写脚手架） | ✅ | [scripts/docs-as-product.py](../scripts/docs-as-product.py) |
 
 > **向后兼容包装脚本**（以下脚本为薄包装层，转发到 repo-check.py / spec-tool.py 对应子命令）：
 > - `check-gitignore.py` → `repo-check.py gitignore`

@@ -5,11 +5,11 @@
 ## 完成证据汇总（2026-10-08）
 
 - **测试**：`pytest test_docs_as_product.py` → 42 passed；覆盖率 TOTAL 93%（structure 100%、metadata_drift 98%）。
-- **Skill 质量**：`check-skill-quality.py docs-as-product-cmd` → 100 分，通过 34 项。
+- **Skill 质量**：`check-skill-quality.py --path .agents/skills/docs-as-product-cmd` → 100 分，通过 34 项。
 - **链接**：`check-links.py` → 所有链接均有效。
 - **重复**：新模块单独扫描无重复命中（全仓库仅命中既有统一版本头样板）。
 - **端到端**：`docs-as-product.py all --json` 对真实 docs 正常输出 `per_gate`/`findings`，退出码语义正确。
-- **登记**：skills/README.md（13 个门面）、capability-registry/01-scripts.md 与 02-skills.md 均已登记；API 参考新增 15-docs-as-product 分片。
+- **登记**：skills/README.md（13 个门面）、capability-registry/01-scripts.md 与 02-skills.md 均已登记；API 参考新增 `10-docs-as-product` 分片（注册表 `_api_modules_data.py` 中 `num=10`；同目录 `15-testing`、`16-sphinx-config` 为手写分片，非本 spec 产出）。
 
 ## Task 1: 搭建模块底座（模型、常量、发现）
 - **Status**: `completed`
@@ -155,3 +155,20 @@
   - `rule` TR-10.1: `check-duplication` 对新增脚本无重复告警；证据：命令输出。
   - `rule` TR-10.2: 提交信息符合 Conventional Commits 且主体为中文；证据：`git log -1`。
 - **Notes**: 提交前确保无 `.temp/`、`__pycache__/` 入库。
+
+## Issue I-1: 完成证据陈述与磁盘事实不符（Review R1 / F1）
+- **Status**: `completed`
+- **Priority**: medium
+- **Depends On**: None
+- **Discovered By**: Review R1
+- **Description**:
+  - 本文件「完成证据汇总」原称"API 参考新增 `15-docs-as-product` 分片"，实际文件为 `.agents/scripts/lib/docs/10-docs-as-product.md`（注册表 `num=10`），`15` 对应 `15-testing` 手写分片。
+  - 同段"Skill 质量"一行记录的命令 `check-skill-quality.py docs-as-product-cmd` 缺 `--path`，照抄执行会报退出码 2（即 Review R1 的 F2 同源缺陷）。
+- **Acceptance Criteria Addressed**: AC-6
+- **Test Requirements**:
+  - `rule` TR-I-1.1: 本文件记述的分片编号与实际 `lib/docs/` 文件名、注册表 `num` 一致；证据：文件列表 + 注册表 grep。
+  - `rule` TR-I-1.2: 本文件记述的校验命令可照抄执行成功；证据：命令退出码 0。
+- **Completion Evidence**:
+  - 分片编号更正为 `10-docs-as-product` 并注明 15/16 手写分片归属；Skill 质量命令补 `--path`（复制自 Review R1 的 CP-R6 实证命令）。
+  - 由 Review R2 独立复核一致性与检查点未回归。
+- **Notes**: 属文档证据陈述失真，未涉及实现代码改动。

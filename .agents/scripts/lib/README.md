@@ -9,6 +9,8 @@ x-toml-ref: "../../../.meta/toml/.agents/scripts/lib/README.toml"
 
 > 本文档由 `lib/api_docs.py` 自动生成，描述共享库所有公开模块和函数。
 
+<!-- API_DOCS_START -->
+
 ## 文档导航
 
 | 文档 | 模块 | 说明 |
@@ -33,7 +35,7 @@ x-toml-ref: "../../../.meta/toml/.agents/scripts/lib/README.toml"
 ## 文档生成
 
 - **拆分模式（当前使用）**：索引页 + 16个模块分片文档，位于 `lib/docs/` 目录
-- **重新生成**：运行 `python .agents/scripts/lib/api_docs.py --split`
+- **重新生成**：运行 `python .agents/scripts/lib/api_docs.py --split`（仅更新自动生成区域，人工章节保留）
 - **单文件预览**：运行 `python .agents/scripts/lib/api_docs.py` 输出到 stdout
 
 ---
@@ -61,6 +63,8 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 - [共享库引力定律](../../../docs/retrospective/patterns/methodology-patterns/tools-automation/shared-lib-gravity.md)
 - [临时sys.path修改](../../../docs/retrospective/patterns/code-patterns/temporary-syspath-modification.md)
+
+<!-- API_DOCS_END -->
 
 ---
 

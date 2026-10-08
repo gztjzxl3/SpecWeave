@@ -154,3 +154,7 @@ work/ai-monetization-doubao-outcome-pricing.md
 
 # WorkBuddy 发布应用状态文件（appId 随会话生成，机器产物，本地保留不入库）
 .wbapp_*.genie
+
+# QwenWork Canvas Design Mode 工作目录（含 .vite/deps 构建缓存与 .design-state.json 机器状态，
+# 属本地工作产物；画布交付物已抽取为 docs/retrospective/patterns/.../seven-concepts-docs-as-product-broadsheet.html）
+qwenwork/

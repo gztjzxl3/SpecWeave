@@ -487,4 +487,4 @@ def test_load_balancing_boundary(resolver, n_agents):
 
 ---
 
-**[返回索引](../README.md)** | 上一章 ← [全局常量](14-constants.md)
+**[返回索引](../README.md)** | 上一章 ← [全局常量](14-constants.md) | 下一章 → [Sphinx + MyST 文档构建配置层](16-sphinx-config.md)

@@ -120,6 +120,35 @@ sequenceDiagram
 
 **记忆口诀**：Mermaid 文本保持单行，需要分隔时用空格。
 
+### 规则 2d：禁止反斜杠转义引号（标签内嵌套引用）
+
+在已被双引号包裹的节点标签、边标签、subgraph 标题内再表达"引用"语义时，**禁止使用 C/JSON 风格的反斜杠转义 `\"`**，必须改用中文弯引号 `“”`（也可按语境改用单引号 `'` 或 HTML 实体 `&quot;`）。
+
+**为什么？** Mermaid 词法器不识别 `\"` 转义序列：反斜杠被当作普通字符，紧随其后的 `"` 仍会提前终结当前标签，进而导致整图 parse error。该问题经 Mermaid 10 与 Mermaid 11 双版本真实解析器实测均为**致命错误**，在 GitHub 等相对宽松的渲染环境中同样无法渲染；外层"再加引号"无法绕过，因为问题出在引号嵌套本身。
+
+**错误示例（普通围栏，故意不渲染）：**
+```
+flowchart TD
+    P2 -->|"API文档+\"先查lib\"约定+PR检查"| P3
+    E["执行\"代码示例三查\""]
+    H["误点\"分享\"按钮(footer区域判断错误)"]
+```
+
+**正确示例：**
+```mermaid
+flowchart TD
+    P2 -->|"API文档+“先查lib”约定+PR检查"| P3
+    E["执行“代码示例三查”"]
+    H["误点“分享”按钮(footer区域判断错误)"]
+```
+
+**边界说明：**
+- 仅当反斜杠**紧邻 ASCII 双引号**（字面 `\"`）时违规；Windows 路径中的单反斜杠（如 `C:\Users`）与不含反斜杠的普通引号、中文弯引号、`&quot;` 均不受影响
+- `%%` 注释内的 `\"` 不检测
+- 自动化检查对应 rule_id 为 `mermaid.vscode.escaped_quote`，适用于全部图类型，每条物理行最多报告一次；该规则**只检测、不自动修复**（`--fix` 不处理），需人工改写以保留语义
+
+**记忆口诀**：标签里要再引一层，用中文弯引号 `“”`，绝不写 `\"`。
+
 ### 规则 3：Subgraph 安全格式
 
 Subgraph 必须使用英文 ID + 显式中文标题格式：
@@ -354,8 +383,9 @@ python .agents/scripts/check-mermaid.py
 11. 中文方括号【】（VS Code预览误解析，规则8）
 12. Unicode箭头符号→←↑↓（VS Code兼容性警告，规则8）
 13. subgraph内嵌套direction（VS Code布局异常，规则8）
+14. 标签内反斜杠转义双引号 `\"`（Mermaid 10/11 均解析失败，规则2d；只检测不自动修复）
 
-支持 `--fix` 参数自动修复部分问题（空行、引号、`\n`→空格、<br/>移除、带圈数字替换、中文方括号替换、箭头符号替换）。
+支持 `--fix` 参数自动修复部分问题（空行、引号、`\n`→空格、<br/>移除、带圈数字替换、中文方括号替换、箭头符号替换）。第 14 项转义引号不支持自动修复，需人工改为中文弯引号。
 
 > ⚠️ **注意**：check-mermaid.py 只检查` ```mermaid `围栏内的代码。如果你错误地将不完整片段/错误示例放在mermaid围栏中，脚本会检测到错误；但如果你应该使用mermaid围栏却误用了普通围栏（图表无法渲染），脚本无法检测——围栏选择是人工判断，参见规则6。
 
@@ -396,6 +426,7 @@ python .agents/scripts/check-links.py --path <产物目录>
 - [ ] 代码块内无任何空行
 - [ ] 含中文/特殊字符/空格的节点文本已用双引号包裹
 - [ ] 节点文本无「数字.空格」「- 空格」「* 空格」等列表触发模式
+- [ ] 标签内嵌套引用使用中文弯引号 `“”`（或单引号/`&quot;`），无反斜杠转义 `\"`
 - [ ] Mermaid 节点与标签文本保持单行，需要分隔时使用空格
 - [ ] Subgraph 使用 `ID ["标题"]` 格式，ID 为纯英文
 - [ ] 边标签使用 `-->|"标签"|` 格式（中文/特殊字符加引号）
@@ -405,4 +436,4 @@ python .agents/scripts/check-links.py --path <产物目录>
 - [ ] 修复后双验证：已对修复目标文件**和**新创建的产物文件运行check-mermaid.py
 - [ ] 运行 `check-mermaid.py` 无错误无警告
 
-> 来源：Mermaid 渲染兼容性问题修复复盘（retrospective-mermaid-rendering-fix-20260626），Mermaid 渲染回归治理失效复盘（retrospective-mermaid-rendering-regression-20260629）补充规则2c换行符规范与自动化检查第6-8项；Mermaid列表触发错误第一性原理修复复盘（retrospective-mermaid-list-fix-first-principles-20260710）补充规则6（代码示例围栏选择）和规则7（产物双验证）。
+> 来源：Mermaid 渲染兼容性问题修复复盘（retrospective-mermaid-rendering-fix-20260626），Mermaid 渲染回归治理失效复盘（retrospective-mermaid-rendering-regression-20260629）补充规则2c换行符规范与自动化检查第6-8项；Mermaid列表触发错误第一性原理修复复盘（retrospective-mermaid-list-fix-first-principles-20260710）补充规则6（代码示例围栏选择）和规则7（产物双验证）；shared-lib-gravity 模式文档 Mermaid 渲染修复（2026-10-08，Mermaid 10/11 双版本实测确认 `\"` 致命）补充规则2d（禁止反斜杠转义引号）与自动化检查第14项（rule_id `mermaid.vscode.escaped_quote`）。

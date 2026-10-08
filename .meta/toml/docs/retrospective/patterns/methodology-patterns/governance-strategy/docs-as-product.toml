@@ -1,0 +1,23 @@
+id = "docs-as-product"
+title = "文档即产品经营法"
+domain = "methodology"
+layer = "governance"
+category = "retrospective/patterns/methodology-patterns/governance-strategy"
+maturity = "L1-draft"
+validation_count = 1
+reuse_count = 0
+documentation_level = "complete"
+abstract_level = "domain-general"
+source = "七概念知识沉淀(sc-20261008-docs-as-product)——QwenWork Canvas 主张页《文档即产品·Docs as Product on Sphinx/Python》V6 发布态（22 条事实/4 洞察/6 条 V 意见）"
+source_report = "docs/retrospective/patterns/methodology-patterns/governance-strategy/seven-concepts-docs-as-product-broadsheet.html"
+date = "2026-10-08"
+version = "1.0"
+maturity_note = "单案例首次入库（QwenWork Canvas《文档即产品》主张页 + 同谱系画布工程态与 V6 发布修复，属同一产物谱系）。升级 L1.5：第二个非同谱系场景（PRD 产品化/API 门户产品化）完整应用本模式六步并回填；升级 L2-validated：另需本团队一次真实文档产品化任务实战回填 M1–M5。"
+
+[bindings]
+related_patterns = [
+  "bp-doc-automation-pipeline",
+  "content-sensitivity-routing",
+  "convention-driven-creation",
+  "document-as-queryable-api",
+]

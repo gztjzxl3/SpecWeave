@@ -34,9 +34,11 @@ x-toml-ref: "../../../.meta/toml/.agents/scripts/lib/README.toml"
 
 ## 文档生成
 
+以下命令需在 `.agents/scripts/` 目录下执行（`lib` 走包内相对导入，直接 `python lib/api_docs.py` 会报 `ImportError`）：
+
 - **拆分模式（当前使用）**：索引页 + 16个模块分片文档，位于 `lib/docs/` 目录
-- **重新生成**：运行 `python .agents/scripts/lib/api_docs.py --split`（仅更新自动生成区域，人工章节保留）
-- **单文件预览**：运行 `python .agents/scripts/lib/api_docs.py` 输出到 stdout
+- **重新生成**：运行 `python -m lib.api_docs --split`（仅更新自动生成区域，人工章节保留）
+- **单文件预览**：运行 `python -m lib.api_docs` 输出到 stdout
 
 ---
 

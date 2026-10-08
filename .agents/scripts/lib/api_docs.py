@@ -16,7 +16,13 @@ from pathlib import Path
 written = write_split_docs(Path("lib/"))
 ```
 
-CLI 模式：`python lib/api_docs.py --help`
+CLI 模式（必须在 `.agents/scripts/` 目录下执行，`lib` 为包内相对导入）：
+
+```bash
+cd .agents/scripts
+python -m lib.api_docs --split   # 拆分模式：生成分片文档并更新 README 自动生成区域
+python -m lib.api_docs           # 单文件模式：预览输出到 stdout
+```
 """
 
 
@@ -87,10 +93,10 @@ def generate_api_docs() -> str:
         sections.append(f"- [{m['title']}](#{anchor})")
     sections.append("")
     sections.append("## README 生成建议\n")
-    sections.append("- **预览输出**：可直接运行 `python .agents/scripts/lib/api_docs.py` 查看生成内容。")
-    sections.append("- **拆分模式（推荐）**：运行 `python .agents/scripts/lib/api_docs.py --split` 自动生成分片文档到 `lib/docs/` 目录。")
+    sections.append("- **预览输出**：在 `.agents/scripts/` 目录下运行 `python -m lib.api_docs` 查看生成内容。")
+    sections.append("- **拆分模式（推荐）**：在 `.agents/scripts/` 目录下运行 `python -m lib.api_docs --split` 自动生成分片文档到 `lib/docs/` 目录。")
     sections.append("- **禁止整体覆写 README**：`README.md` 含人工维护章节，直接写回本函数输出会静默丢失它们；请统一使用 `--split`，它只更新 `<!-- API_DOCS_START -->` 与 `<!-- API_DOCS_END -->` 标记之间的自动生成区域。")
-    sections.append("- **不推荐**：`python .agents/scripts/lib/api_docs.py | Set-Content ...`。在 Windows PowerShell 文本管道场景下，中文内容可能被错误转码。\n")
+    sections.append("- **不推荐**：`python -m lib.api_docs | Set-Content ...`。在 Windows PowerShell 文本管道场景下，中文内容可能被错误转码。\n")
 
     for m in modules:
         sections.append("---\n")
@@ -148,9 +154,10 @@ def _split_docs_block(modules) -> str:
         index_lines.append(f"| [docs/{m['filename']}](docs/{m['filename']}) | `{mod_name}` | {desc} |")
     index_lines.append("")
     index_lines.append("## 文档生成\n")
+    index_lines.append("以下命令需在 `.agents/scripts/` 目录下执行（`lib` 走包内相对导入，直接 `python lib/api_docs.py` 会报 `ImportError`）：\n")
     index_lines.append(f"- **拆分模式（当前使用）**：索引页 + {len(modules)}个模块分片文档，位于 `lib/docs/` 目录")
-    index_lines.append("- **重新生成**：运行 `python .agents/scripts/lib/api_docs.py --split`（仅更新自动生成区域，人工章节保留）")
-    index_lines.append("- **单文件预览**：运行 `python .agents/scripts/lib/api_docs.py` 输出到 stdout\n")
+    index_lines.append("- **重新生成**：运行 `python -m lib.api_docs --split`（仅更新自动生成区域，人工章节保留）")
+    index_lines.append("- **单文件预览**：运行 `python -m lib.api_docs` 输出到 stdout\n")
     index_lines.append("---\n")
     index_lines.extend(_DEV_WORKFLOW)
     index_lines.append("## 相关模式\n")

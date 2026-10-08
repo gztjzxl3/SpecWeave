@@ -146,6 +146,23 @@ class TestReadmeMarkerRegion:
         assert readme.read_text(encoding="utf-8") == original
 
 
+# ── 命令用法说明 ────────────────────────────────────────────
+
+class TestCommandUsage:
+
+    def test_documented_command_is_executable_form(self, tmp_path, fake_modules):
+        """README 记录的命令必须是可执行形式（包内相对导入要求 -m 方式）。"""
+        api_docs.write_split_docs(tmp_path)
+        readme = (tmp_path / "README.md").read_text(encoding="utf-8")
+        assert "`python -m lib.api_docs --split`" in readme
+        assert "python .agents/scripts/lib/api_docs.py" not in readme
+
+    def test_single_file_preview_doc_uses_module_form(self, fake_modules):
+        text = api_docs.generate_api_docs()
+        assert "`python -m lib.api_docs`" in text
+        assert "python .agents/scripts/lib/api_docs.py" not in text
+
+
 # ── 幂等性 ──────────────────────────────────────────────────
 
 class TestIdempotence:

@@ -25,8 +25,6 @@ SpecWeave Python 3.10+ 版本校验库（可复用共享模块）
 幂等安全：多次导入不会产生副作用。
 """
 
-from __future__ import annotations
-
 import sys
 from typing import Dict, Any
 

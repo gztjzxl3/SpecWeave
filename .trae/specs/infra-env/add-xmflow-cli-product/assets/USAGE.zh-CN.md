@@ -119,10 +119,17 @@ jupyter/SSH 服务、示例模型与校准数据。
 
 - **`No module named 'torch'`**：该模型是 PyTorch 前端，请改用
   `xmflow-release:1.2.1-torch` 标签。
-- **temp 目录权限报错**：容器以非 root 用户 `xmnn` 运行（uid 由镜像构建时
-  分配），请令宿主 `temp` 目录对该 uid 可写：简易方式
+- **temp 目录权限报错（新建文件被拒）**：容器以非 root 用户 `xmnn` 运行
+  （uid 由镜像构建时分配），请令宿主 `temp` 目录对该 uid 可写：简易方式
   `mkdir -p temp && chmod 0777 temp`；或查询 uid
   （`docker run --rm --entrypoint id xmflow-release:1.2.1 -u`）后 `chown`；
   也可在 `docker run` 加 `--user "$(id -u):$(id -g)"` 以当前宿主用户运行。
+- **`PermissionError: ... temp/<模型名>/compile/0-compile.log`（重跑编译时）**：
+  目录本身可写，但其中存在**其他身份（uid）上次运行留下的旧产物文件**
+  （权限通常为 644/555），当前容器用户只能读不能改写，追加日志即被拒。
+  temp 内全部为可再生产物，删除该模型的旧产物目录后重跑即可：
+  `rm -rf temp/<模型名>`（模型源文件在 models/，不受影响）；
+  或用 root 身份递归开放写权限：`chmod -R a+w temp/<模型名>`。
+  同一主机固定以同一容器用户运行可避免此问题。
 - **推理输出全为 0x7F7F**：属板端运行毒值，通常为编译 `target` 与实际板卡
   硬件不匹配或板端共享存储异常，并非镜像问题。

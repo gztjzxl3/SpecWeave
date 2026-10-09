@@ -8,14 +8,26 @@ GIT_HOOKS_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
 PROJECT_ROOT="$(cd "$GIT_HOOKS_DIR/../.." && pwd)"
 PY_HOOK="$PROJECT_ROOT/.agents/scripts/hooks/pre_commit.py"
 
-# Find Python 3 (try multiple common names/locations)
+# Find Python that satisfies lib/'s TOML dependency: tomllib on 3.11+ or tomli on
+# 3.10. A capability probe is required - pre_commit.py imports lib/, so a plain
+# "major version >= 3" check let Python 3.10 through and crashed the hook with
+# ModuleNotFoundError: No module named 'tomllib'. Override with PRECOMMIT_PYTHON.
+has_toml_support() {
+    "$1" -c 'import sys
+ok = sys.version_info >= (3, 10)
+if ok and sys.version_info < (3, 11):
+    try:
+        import tomli  # noqa: F401
+    except ImportError:
+        ok = False
+sys.exit(0 if ok else 1)' >/dev/null 2>&1
+}
+
 find_python() {
-    for cmd in python3 python py; do
-        if command -v "$cmd" >/dev/null 2>&1; then
-            if "$cmd" -c "import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)" 2>/dev/null; then
-                echo "$cmd"
-                return 0
-            fi
+    for cmd in "$PRECOMMIT_PYTHON" python3 python py; do
+        if [ -n "$cmd" ] && command -v "$cmd" >/dev/null 2>&1 && has_toml_support "$cmd"; then
+            echo "$cmd"
+            return 0
         fi
     done
     # Windows: try common install paths
@@ -29,7 +41,7 @@ find_python() {
             "/c/Users/$USER/AppData/Local/Programs/Python/Python311/python.exe" \
             "/c/Users/$USER/AppData/Local/Programs/Python/Python310/python.exe" \
             "/c/Users/$USER/AppData/Local/Programs/Python/Python39/python.exe"; do
-            if [ -x "$py_path" ] 2>/dev/null; then
+            if [ -x "$py_path" ] 2>/dev/null && has_toml_support "$py_path"; then
                 echo "$py_path"
                 return 0
             fi
@@ -40,8 +52,9 @@ find_python() {
 
 PYTHON="$(find_python)"
 if [ -z "$PYTHON" ]; then
-    echo "❌ Python 3 not found. Pre-commit hook requires Python 3."
-    echo "   Please install Python 3 and ensure it's in your PATH."
+    echo "❌ No usable Python for pre-commit hook (pre_commit.py imports lib/, which needs TOML)."
+    echo "   Need Python 3.11+ (tomllib), or 3.10 with 'pip install tomli'."
+    echo "   Point at one explicitly: PRECOMMIT_PYTHON=/path/to/python git commit"
     exit 1
 fi
 

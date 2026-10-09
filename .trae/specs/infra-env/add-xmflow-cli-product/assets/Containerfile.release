@@ -3,10 +3,11 @@
 # Containerfile.release — xmflow 客户发布镜像（不依赖源码树，仅依赖 wheel）
 #
 # 与开发镜像（native-dev，10.6GB，绑源码 bind mount）的本质区别：
-#   本镜像把 xmnn wheel 及其完整运行时闭包装进 ubuntu 官方 python3.14 venv，
-#   客户机只需挂载自己的模型组目录即可 `xmflow compile/accuracy/infer`；
-#   镜像内无 tvm/npuusertools 源码、无 Nuitka、无 LLVM dev、无 conda、
-#   无 jupyter/ssh/supervisor、无 CUDA/torch GPU 栈。
+#   本镜像把 xmnn wheel 及其完整运行时闭包装进隔离 venv（解释器为从构建器
+#   重定位的最小 CPython 3.14.7），客户机只需挂载自己的模型组目录即可
+#   `xmflow compile/accuracy/infer`；镜像内无 tvm/npuusertools 源码、
+#   无 Nuitka、无 LLVM dev、无 conda 包管理器及其环境、无 jupyter/ssh/
+#   supervisor、无 CUDA/torch GPU 栈（torch 变体仅含 CPU 版）。
 #
 # 多阶段：
 #   Stage 0 wheelhouse（FROM 开发镜像 hotfix）：构建期在富工具镜像内
@@ -99,7 +100,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # 不固定 uid（base 已占 uid 1000），bind 挂载写权限以宿主目录为准（USAGE §7）。
 COPY --from=wheelhouse /pybase/ /opt/conda/
 RUN /opt/conda/bin/python3.14 -m venv /opt/xmflow && \
-    (id xmnn >/dev/null 2>&1 || useradd -m xmnn) && \
+    (id xmnn >/dev/null 2>&1 || useradd -m -s /bin/bash xmnn) && \
     mkdir -p /workspace/models /workspace/temp && \
     chown -R xmnn:xmnn /workspace
 

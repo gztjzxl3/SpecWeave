@@ -6,10 +6,10 @@
 
 ## 1. 镜像标签
 
-| 标签 | 支持前端 | 近似体积 |
-|---|---|---|
-| `xmflow-release:1.2.1` | Caffe、ONNX | 约 1.2 GB |
-| `xmflow-release:1.2.1-torch` | Caffe、ONNX、**PyTorch（CPU 前端）** | 约 1.7 GB |
+| 标签 | 支持前端 | 镜像体积 | zstd 压缩包 |
+|---|---|---|---|
+| `xmflow-release:1.2.1` | Caffe、ONNX | 1.18 GB | 258 MiB |
+| `xmflow-release:1.2.1-torch` | Caffe、ONNX、**PyTorch（CPU 前端）** | 2.09 GB | 408 MiB |
 
 - 工具链版本：xmnn 1.2.1.dev0（Nuitka 4.2.2 编译，Python 3.14 ABI）
 - PyTorch 模型（`.pth/.pt`）编译必须使用 `-torch` 标签；torch 仅用于主机端

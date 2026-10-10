@@ -1,6 +1,6 @@
 ---
 title: "第二交付产品 xmflow-cli 提案（纯 CLI 客户镜像收编进 offline-delivery）"
-status: "approved"
+status: "completed"
 ---
 
 # 第二交付产品 xmflow-cli 提案 - Product Requirements Document

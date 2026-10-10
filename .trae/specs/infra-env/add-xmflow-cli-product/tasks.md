@@ -356,3 +356,4 @@ status: "approved"
     - F-6：TR-7.2 经历 blocked → 解除（Task 10 Unblock 条件 3 解除后 smoke 全链绿补齐），过程如实登记，未以静态检查冒充端到端通过
     - F-7：`fake-prod/{release,scripts,smoke}` 与 `tests/__pycache__` 空目录壳因 IDE 文件监视器持有 SMB 句柄删除挂起（不含文件、git 不可见、不影响测试发现与结果）
   - **审查结论**：通过，建议关闭本 spec；F-1 列 NPU 真机补做项
+  - **Spec 关闭登记（2026-10-10）**：依 R1 审查结论「通过，建议关闭本 spec」，`spec.md` frontmatter status `approved` → `completed`（与工作区已完成 spec 先例一致，如 infra-env/extract-offline-delivery-app；正文裁定内容不动，仅流转生命周期状态位）。至此本 spec 全部 13 个 Task completed，AC-1 至 AC-8 与 TR-1 至 TR-13 均被检查点覆盖。遗留项：F-1（TR-6.1 误装 xmnn 故意污染验证）列 NPU 真机补做；F-3 改进方向属交付契约变更，留待用户裁决。

@@ -126,6 +126,15 @@ flowchart TD
 |------|--------|---------|---------|------|
 | 脚本共享库提取 | 24 | 12 类 | ~280 行 | lib/markdown.py + 6 函数 + 1 bug 修复 |
 
+## 增量预防变体：片内符号盘点
+
+上述五步是**终态消除**（审计→提取→迁移）。在翻译式搬迁等持续多片的工程中，
+重复在产生当时即可被拦截：每完成一个切片，立即用 AST 盘点（或编号表格人工枚举）
+核对"上游符号→目标模块"映射，发现同名跨模块即停手去重，不把核对只留到收尾审计。
+案例（单案例孤证，作反模式提示）：xuan-compose D13——T4 已迁入 dependencies.py
+的 check_dep_conditions，T7 按 handler 区域又逐字节重译一份，至 T11 盘点才暴露。
+完整过程纪律见 [dependency-ordered-slice-gates](../governance-strategy/dependency-ordered-slice-gates.md)。
+
 ## 与现有模式的关系
 
 - `diff-driven-refactoring.md`：本模式的大规模版本，聚焦 10+ 文件；diff-driven 聚焦 2 文件对比

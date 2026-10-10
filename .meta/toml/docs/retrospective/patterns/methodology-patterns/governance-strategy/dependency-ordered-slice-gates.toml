@@ -1,0 +1,13 @@
+id = "dependency-ordered-slice-gates"
+domain = "methodology"
+layer = "methodology"
+maturity = "L1"
+validation_count = 1
+reuse_count = 0
+documentation_level = "standard"
+source = "docs/retrospective/patterns/methodology-patterns/governance-strategy/dependency-ordered-slice-gates.md"
+
+[bindings]
+rules = []
+references = ["snapshot-parity-migration", "large-scale-duplication-elimination", "behavior-characterization-freeze", "orchestration-execution-layering", "three-stage-content-validation"]
+skills = []

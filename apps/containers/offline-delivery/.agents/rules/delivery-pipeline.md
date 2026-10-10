@@ -78,21 +78,16 @@ source: "AGENTS.md#P0 约束速览"
 - 改字段属客户契约变更：须同步骨架 `README.md`、本文档与 `docs/`，并补守卫测试。
   读取纪律见 §12。
 
-## §7 禁依赖 `client` / `shared`；外部输入三项
+## §7 禁依赖 `client` / `shared`；外部输入仅两项
 
 - 本应用**禁止**引用 `apps/containers/client/` 与 `apps/containers/shared/` 的任何路径或代码
   （含 `overlays/_shared`、`jpman_client`、`jpman_common`、`invoke`）。
-- 外部输入三项：① `../workspace/dist/<WHEEL_GLOB>`（预构建**载荷** wheel，`stage` 暂存进
+- 外部输入仅：① `../workspace/dist/<WHEEL_GLOB>`（预构建**载荷** wheel，`stage` 暂存进
   `release/payload/` 随交付包发出，**不进底座构建上下文**）；② 基镜像 `BASE_IMAGE_DEFAULT`
-  （按产品：`xmnn-runtime` 为 `localhost/jupyter-podman-rootless:latest`，由
-  `jupyter-podman-rootless` 应用产出，作为底座 `FROM`；`xmflow-cli` 为
-  `docker.io/library/ubuntu:26.04`）；③ 构建器镜像 `localhost/native-dev:nuitka-4.2.2-hotfix`
-  （仅 `xmflow-cli` 底座构建 Stage 0 使用，由 `client` 的 native-dev 构建链产出，
-  **厂商侧构建期输入**：不作为构建依赖进入交付链、不出现在 `product.env` 必需键与
-  `bin/relpack`，仅以 `ARG BUILDER_IMAGE` 常量写在 `products/xmflow-cli/Containerfile.xmflow-cli` 内）。
+  （`localhost/jupyter-podman-rootless:latest`，由 `jupyter-podman-rootless` 应用产出，作为底座 `FROM`）。
 - 产品差异（镜像名、Containerfile 名、wheel glob、wheel 源目录、基镜像默认、torch 缺省、骨架目录名）
   **只允许**写在 `products/<产品>/product.env`；CLI 内不得内嵌 `xmnn` 等产品常量。
-- 新增交付产品 = 只新增 `products/<名>/`（含 `product.env`、`deps.txt` 与
+- 新增第二个交付产品 = 只新增 `products/<名>/`（含 `product.env`、`deps.txt` 与
   Containerfile/脚本/冒烟/`release/`（含 `payload/`））并在文档登记，**CLI 代码零改动**。
 
 ## §8 Windows 一律 pwsh7，容器命令经 `wsl.exe` 桥接

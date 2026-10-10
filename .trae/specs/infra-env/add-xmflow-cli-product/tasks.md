@@ -331,7 +331,7 @@ status: "approved"
   - **AC-5 Evidence 落点**：spec L184「与 `assets/USAGE.zh-CN.md`（实现删除留档前）逐节对照表」的实体即 TR-12.1 三文件内容去向对照表（上方 L293-319），指针不悬空。
 
 ## Task 13: 独立 Review
-- **Status**: `pending`
+- **Status**: `completed`
 - **Priority**: medium
 - **Depends On**: Task 1 - Task 12
 - **Description**:
@@ -341,3 +341,18 @@ status: "approved"
   - `rule` TR-13.1: `review.md` 中每条 AC 与 TR 均被至少一个检查点覆盖，无 Pending 证据残留；Evidence = 覆盖映射表
   - `rubric` TR-13.2: 审查结论对「第二产品接入是否验证了当初抽应用的多产品假设」给出判断；scale 1-5;anchors 1=未触及、3=承认假设需验证、5=以改动面数据回答并给出第三产品接入建议;threshold >= 4;evidence = 结论段落
 - **Notes**: Specify/Plan 阶段**不得**创建 `review.md`（本队列当前状态即遵守此约束，故本目录只有 spec/tasks 两件套）。
+- **Task 13 实施记录 — R1 独立审查登记（2026-10-10，七概念场景「里程碑复盘」）**：
+  - **产物**：`review.md`（本目录，Task 13 Description 要求创建；Specify/Plan 阶段约束解除后于 Implement 队列清空后创建）
+  - **结构**：检查点 CP-R1–R6（rule 类 AC-1/2/3/4/6/7）+ CP-U1–U2（rubric 类 AC-5/8），每检查点记录 R1 结果、覆盖 TR 与证据落点（指针引用 Task 1–12 归档证据，不重复粘贴输出原文）
+  - **TR-13.1 达成**：覆盖映射表证 8 条 AC 与 31 条 TR 均被至少一个检查点覆盖，无 Pending 证据残留（TR-6.1 部分达成以发现 F-1 登记，非 Pending）
+  - **R1 结果汇总**：8/8 AC 达成 —— 6 条 rule 全 PASS；rubric 两项均 **5/5**（CP-U1 = AC-5 客户契约文本无信息损失、CP-U2 = AC-8 提案质量），≥ 阈值 4
+  - **TR-13.2 达成（5/5，anchor 5）**：结论「第二产品接入充分验证了当初抽应用的多产品假设」——依据：① TR-9.2 假产品实验证成 FR-10 两层拆分（通用不变量层 37 项自动覆盖零改测试代码、私有契约层显式 skip 不静默通过、删除后结果复原）；② 契约改动面最小（`bin/relpack` 仅 +4/−1，为 FR-6 形态白名单下移的同一契约修订两编辑点；`bin/lib/common.sh` 零改动；`products/xmnn-runtime/**` 零改动；tests 改动严格限定 FR-6 三处字面量 + FR-10 参数化）；③ collect 计数线性 +50/产品（`102 = 2×50 + 2` → `152 = 3×50 + 2`）。附第三产品接入六步建议（0 处 CLI 契约改动 + 1 处 registry 条目 + 产品目录新建 + 治理文档登记）与剩余风险登记
+  - **发现 F-1 至 F-7（如实登记）**：
+    - F-1（TR-6.1 部分达成）：底座守卫双用户全绿已由 Task 10 build 22 步 rc=0 实跑覆盖（Containerfile Layer 4 root+xmnn 双跑），但「误装 xmnn 故意污染验证」未实跑；**建议 NPU 真机补做**
+    - F-2：spec.md L44「三份原件均已入库跟踪」与 git 事实不符（assets/ 三文件从未入库），勘误事实已登记于 Task 12 SMB 缺失处置核实块；spec 为已批准历史裁定文档，正文不回改
+    - F-3：NFR-2 后半（派生增量与 §9 的 0.18 GB 量级可比）未达成 —— 可避免架构残留已消除（COPY 层消减 ≈177 MB），剩余增量即 wheel 解包实体体量（libLLVM.so.22.1 200 MB 级），属载荷真实体量而非架构问题；改进方向属交付契约变更，留待用户裁决
+    - F-4：Task 10 Stage 0 构建器为最小功能等价镜像（Python 3.14.6 + `/opt/conda/ssl/cacert.pem`，即 `relocate-cpython.sh` 唯一输入），完整 native-dev 镜像与 CPU/GPU 形态验证须 NPU 真机执行
+    - F-5：`bin/relpack.ps1` L24 `$Flavors = @('cpu','cu130')` 未参数化（D3 禁止第二处 CLI 改动，Windows 侧 xmflow-cli 交付须用 WSL bash 版 `bin/relpack`）
+    - F-6：TR-7.2 经历 blocked → 解除（Task 10 Unblock 条件 3 解除后 smoke 全链绿补齐），过程如实登记，未以静态检查冒充端到端通过
+    - F-7：`fake-prod/{release,scripts,smoke}` 与 `tests/__pycache__` 空目录壳因 IDE 文件监视器持有 SMB 句柄删除挂起（不含文件、git 不可见、不影响测试发现与结果）
+  - **审查结论**：通过，建议关闭本 spec；F-1 列 NPU 真机补做项

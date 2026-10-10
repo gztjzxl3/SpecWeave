@@ -60,10 +60,14 @@ RUN /bin/bash -lc 'set -euo pipefail ; \
     /bin/bash /tmp/relocate-cpython.sh'
 
 # ---- Stage 1：客户运行时底座 -------------------------------------------------
-ARG BASE_IMAGE=docker.io/library/ubuntu:26.04
-FROM ${BASE_IMAGE}
+# 基底用字面 FROM，不写「ARG BASE_IMAGE → FROM ${BASE_IMAGE}」前置形态：
+# buildah 5.8.2 在该位置解析失败（Stage 0 完成后报 "determining starting
+# point for build: no FROM statement found"，2026-10-10 底座构建实证）。
+# `--build-arg BASE_IMAGE=…` 此后仅影响 LABEL org.specweave.base-image 溯源
+# 记录，不改变 FROM 起点；更换基底须直接修改本 FROM 行。
+FROM docker.io/library/ubuntu:26.04
 
-ARG BASE_IMAGE
+ARG BASE_IMAGE=docker.io/library/ubuntu:26.04
 ARG PIP_MIRROR=official
 # torch 版本固定（工具链稳定性：不允许浮动；与 2026-09-16 起真机验证版本一致，
 # torch 2.14.0 ↔ torchvision 0.29.0 官方配套）。升级时同步修改本 ARG 与

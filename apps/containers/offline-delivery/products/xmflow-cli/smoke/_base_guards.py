@@ -300,7 +300,8 @@ def test_pip_check() -> None:
         text=True,
         timeout=300,
     )
-    lines = [line.strip() for line in out.stdout.splitlines() if line.strip()]
+    lines = [line.strip() for line in out.stdout.splitlines()
+             if line.strip() and "No broken requirements found" not in line]
     allowed = [line for line in lines if _is_allowed_conflict(line)]
     blocking = [line for line in lines if not _is_allowed_conflict(line)]
     print(f"  pip check exit={out.returncode}, {len(lines)} line(s)")

@@ -198,7 +198,7 @@ status: "approved"
   - **TR-9.2 取证（假产品自测，两次运行输出对照）**：临时复制 `products/xmflow-cli` → `products/fake-prod`（registry 无条目）：通用层对其 37 项自动覆盖并全部通过（证明「新增产品不必改测试」），私有层 13 项显式 skip（证明「不静默通过」）；删除 fake-prod 文件后 collect 复原 `125`（`discover_products` 因 `product.env` 缺失自然不识别）。**残留登记**：`fake-prod/{release,scripts,smoke}` 与 `tests/__pycache__` 的空目录因 IDE 文件监视器持有 SMB 目录句柄处于删除挂起（多次 rmdir 未落），不含任何文件、git 不可见、不影响测试发现与结果，句柄释放后自动消失。
 
 ## Task 10: 端到端真机验证与体积实测
-- **Status**: `blocked`
+- **Status**: `in_progress`
 - **Priority**: high
 - **Depends On**: Task 4, Task 5, Task 6, Task 7, Task 9
 - **Description**:
@@ -231,6 +231,11 @@ status: "approved"
   2. 基镜像 `docker.io/library/ubuntu:26.04` 经 docker.io 可拉取（修复 DNS）或离线预置入库；
   3. smoke 依赖 podman-compose 在执行环境预装（本机不安装新包）。
   - 以上满足后重跑五步全链，补登底座实测体积/耗时、release.json 双 sha256 与 TR-10.3 定级。
+- **Unblock 进展登记（2026-10-10，经用户逐项授权推进）**：
+  - **条件 1（构建器镜像）— 部分解除**：完整 native-dev 五连败于 conda/apt 镜像站（tuna apt pool 403、aliyun conda `repdata.json` 404、tuna `.zst` 仅回 15 KB 损坏、基底 `/opt/conda/.condarc` 的 `custom_channels` 把 conda-forge 顽固映射回 tuna、`use_zstd: false` 对当前 mamba 不生效），本环境无外网 conda 源无法完整重建 native-dev。经用户授权改用**最小功能等价镜像** `localhost/native-dev:nuitka-4.2.2-hotfix`（1.16 GB，基底 `jupyter-podman-rootless` 已含 Python 3.14.6 + `/opt/conda/ssl/cacert.pem`，即 xmflow-cli Stage 0 `relocate-cpython.sh` 的唯一输入 `/opt/conda`），LABEL 与真实 native-dev 同构并含 `org.specweave.base-image` 溯源。**如实登记**：此为保真 Stage 0 输入的最小等价物，非完整 native-dev（无 LLVM/Nuitka 实体），完整镜像须于 NPU 真机构建。据此底座构建实测 `localhost/xmflow-cli:base-none` = **547 MB**。
+  - **条件 2（基镜像 ubuntu:26.04）— 已解除**：docker.io 直连仍 DNS 污染；经 `docker.m.daocloud.io/library/ubuntu:26.04` 拉取（112 MB）后 `podman tag` 归一化为 `docker.io/library/ubuntu:26.04`，满足 Stage 1 契约引用名。另修 buildah `no FROM statement found`（Stage 1 `ARG` 前置于 `FROM` 的写法在本 podman 5.8.2 解析失败；**SMB 原件已按用户指令修复**：硬编码 `FROM docker.io/library/ubuntu:26.04` + `ARG BASE_IMAGE` 后置仅作用 LABEL 溯源，附注释登记实证；修复后原件 LF 无 CR，刷新 Temp 构建副本实跑 `podman build` 全 22 步 rc=0，产出 `localhost/xmflow-cli:base-argfix` 547 MB 与 base-none 同体积，日志无 `no FROM statement`）与守卫 `pip check` 假阳性（`_base_guards.py` L297 成功消息行 `No broken requirements found.` 被误计入 blocking，加过滤）。第三次底座构建全绿 rc=0。
+  - **条件 3（podman-compose）— 已解除（本次）**：WSL 发行版为 **Fedora 43**，官方仓库直供 `podman-compose-1.5.0-4.fc43`（携 python3-click/python3-dotenv）。系统 python3.14 无 pip、无 pipx，故 `pip/pipx install` 路线不通；`dnf install -y podman-compose` 成功（bfsu 镜像个别 repo 元数据 403，但包体经有效镜像下载完成，Transaction Complete）。三级实证（RunRoot 前置修复后）：① `podman-compose --version` = 1.5.0，落位 `/usr/sbin/podman-compose`（PATH 内，命中 xmnnctl 探测链第 2 档；`podman compose` 第 1 档经 podman 5.8.2 自动委派亦 rc=0）；② 真实产物 `compose.yaml + compose.podman.yaml` 合并 `config` 解析全字段正确（`image: localhost/xmflow-cli:1.2.1`、`network_mode: bridge`、`pull_policy: never`、override 三必需 `devices/cgroupns/security_opt` 齐备），`--dry-run up` rc=0；③ 最小 compose 实跑 `up -d → ps → down` 全生命周期 rc=0（容器 `pc-min_t_1` Up→清理，用库内既有 ubuntu:26.04，非产品镜像，仅证明工具执行路径可用）。
+  - **仍待完成（不冒充）**：正式 `bin/relpack -p xmflow-cli build → pack → smoke` 五步全链尚未在依赖齐备后重跑；TR-10.1（release.json 双 sha256）、TR-10.2（pack 链 `guard_crlf_shebang`+`gzip -t`）、TR-10.3（派生增量与 NFR-2 结论）仍未取证。TR-10.3 现仅补底座实测 547 MB（对照 `xmflow-release:1.2.1` 1.18 GB 为**底座不含载荷**，派生后体积方为对照面）。
 
 ## Task 11: 治理文档与变更日志登记
 - **Status**: `completed`

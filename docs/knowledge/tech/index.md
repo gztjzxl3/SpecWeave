@@ -14,6 +14,7 @@ quantum-secret-messaging/index
 tvm-ffi-wiki/index
 edgeone-pages-deploy/index
 pinedrama/index
+xuan-compose-sticker-wiki/index
 caffe-ffi-conv-v4-optimization-summary
 free-llm-api-summary
 glm-model-call-example

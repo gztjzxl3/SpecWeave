@@ -1,5 +1,6 @@
 # 任务中间产物（.temp/ 为可随时清理的临时文件）
 .temp/
+.cowork-temp/
 .uploads/
 .meta/backup/
 .meta/baseline-manifest.json

@@ -47,8 +47,9 @@ source: "AGENTS.md#P0 约束速览"
 
 ## §4 形态感知 tag（底座 `<IMAGE_NAME>:base-<形态>`，无 `:latest`）
 
-- `build` 只产出**单一形态感知 tag** `${IMAGE_NAME}:base-<形态>`（形态白名单仅 `cpu|cu130`，缺省来自
-  `products/<产品>/product.env` 的 `TORCH_DEFAULT`；`--torch` 单次覆盖同时改变 tag）。
+- `build` 只产出**单一形态感知 tag** `${IMAGE_NAME}:base-<形态>`（形态白名单由
+  `products/<产品>/product.env` 的**可选键 `FLAVORS`** 声明，未声明回退 `bin/relpack` 全局缺省
+  `cpu|cu130`；形态缺省取 `TORCH_DEFAULT`，必须落在本产品白名单内；`--torch` 单次覆盖同时改变 tag）。
 - **禁止给底座打 `:latest`**：cpu 与 cu130 是互斥形态，共用别名会让后构建者静默覆盖前者的语义；
   镜像 tag 的内容即身份。
 - 交付镜像 tag `${IMAGE_NAME}:<交付版本>` 由**客户侧派生构建**时下发（`xmnnctl load`），与本应用的

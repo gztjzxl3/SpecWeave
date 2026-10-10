@@ -40,6 +40,11 @@ requirements*.txt text eol=lf
 *.cmd      text eol=crlf
 # Git hooks (extensionless POSIX shell scripts)
 .githooks/* text eol=lf
+# The masters under .agents/scripts/hooks/ that install-hooks.py copies verbatim
+# into .git/hooks. The extensionless `pre-commit` wrapper would otherwise fall
+# back to `text=auto`, so an editor round-trip on Windows silently rewrites it as
+# CRLF and `sh -n` dies on "$'{\r'" before the interpreter probe ever runs.
+.agents/scripts/hooks/* text eol=lf
 # Extensionless POSIX shell CLIs (no .sh suffix, so the *.sh rule cannot match
 # them): bin/jpman, the customer-facing release/xmnnctl and the
 # apps/containers/offline-delivery toolchain CLIs bin/relpack + bin/relpack.ps1

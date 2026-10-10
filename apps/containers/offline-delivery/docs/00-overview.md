@@ -36,7 +36,8 @@ source: "../README.md"
 ```
 
 - **输入**：预构建载荷 wheel（`../workspace/dist/xmnn-*.whl`）+ 基镜像（`localhost/jupyter-podman-rootless:latest`）——仅此两项。
-- **中间（厂商侧）**：底座镜像 `localhost/xmnn-runtime:base-<形态>`（`cpu|cu130`，**无 `:latest`**；
+- **中间（厂商侧）**：底座镜像 `localhost/xmnn-runtime:base-<形态>`（形态白名单由 `product.env`
+  可选键 `FLAVORS` 优先、未声明回退全局缺省 `cpu|cu130`，**无 `:latest`**；
   实测约 2.47 GB，其归档约 1.1 GB）；
   镜像内经底座守卫（6 项）硬断言「依赖面齐全」且「`import xmnn` 必须失败」——底座内为「无工具链、零源码挂载、不含载荷」的干净运行时。
 - **中间（客户侧）**：由 `payload/` 内 wheel 派生的交付镜像 `localhost/xmnn-runtime:<交付版本>`（增量约 0.18 GB，约 1-3 分钟；派生构建失败即不产出 tag）。

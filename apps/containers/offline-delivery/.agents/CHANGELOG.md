@@ -84,3 +84,25 @@
 
 **待验证**：本文件所列路径在 Task 2/Task 3 落盘前，`docs/01-quickstart.md` 中命令示例不可执行；
 Task 8 真机验证通过后须回填 `pack` / `smoke` 实测输出与 `release.json` 核对结论。
+
+### 2026-10-10 | feat | 新增第二个交付产品 xmflow-cli（纯 CLI 客户镜像收编）
+
+**关联七概念场景**：场景3「重构优化」——把寄居在消费端覆盖层的三份客户交付资产收编进交付方自持应用，并借收编实证「多产品」假设（`products/<名>/` 扩展无需 CLI 改动）；场景5「知识沉淀」——原 `USAGE.zh-CN.md` 七节用法知识落入 `release/README.md` 与 `docs/` 文档集。
+
+**背景与动机（I）**：2026-10-09 在 client 侧临时产出 xmflow 客户发布镜像，三份资产（`Containerfile.release`、`build-release.sh`、`USAGE.zh-CN.md`）落 `apps/containers/client/overlays/native-dev/release/`，违反 delivery-pipeline §7「禁依赖 client」与 C26 归属纪律（交付物寄居消费端）；且与既有 `xmnn-runtime` 镜像定义形成两份平行镜像定义的漂移风险；客户侧真机验证镜像（`localhost/xmflow-release:1.2.1`，约 1.18 GB）与中文契约文本存在丢失风险。经 D3 裁定就地改写而非另起应用：原资产与交付链存在四处结构性错位——依赖闭包语义（`pip download` wheelhouse 预装 vs `deps.txt` 底座依赖面）、形态白名单无法表达 `none`（全局 `cpu|cu130`）、守卫硬耦合 conda+Jupyter 谱系、测试与交付骨架不可复用（参数硬编码 `xmnn-runtime`）。
+
+**本任务落地**：
+
+- **产品资产**（`products/xmflow-cli/`）：`product.env`（9 必需键 + 可选键 `FLAVORS="none|cpu"`、`TORCH_DEFAULT=none`、`BASE_IMAGE_DEFAULT=docker.io/library/ubuntu:26.04`）；`Containerfile.xmflow-cli` 两段两物——Stage 0 借构建器镜像 `localhost/native-dev:nuitka-4.2.2-hotfix` 制备可重定位最小 CPython（`ARG BUILDER_IMAGE` 产品级常量，不进 `product.env` 必需键与 `bin/relpack`），Stage 1 以 `ubuntu:26.04` 为基座建隔离 venv `/opt/xmflow`、按 `deps.txt`（20 条）装依赖面、torch 前端形态 `none|cpu` 分层、反断言 `import xmnn` 必须失败；`scripts/`（`relocate-cpython.sh` + `install-torch.sh`）；`smoke/` 产品自有双守卫（`_base_guards.py` 6 项 + `_runtime_smoke.py` 10 项 + `pip check`）；`release/` 交付骨架沿用 `xmnnctl` 名与 `XMNN_VERSION` 键（FR-5），无 Jupyter/SSH 端口面与凭证注入，数据面为 `./workspace/models:ro` 与 `./workspace/temp` 两处绑定挂载。
+- **载荷阶段化**（§9 同构）：载荷 wheel 只在交付侧由 `xmnnctl load` 以 `--no-index --no-deps` 派生装入，不进底座构建上下文。
+- **FR-6 唯一 CLI 改动**：`bin/relpack` 形态白名单下放为 `product.env` 可选键 `FLAVORS`（未声明回退全局缺省 `cpu|cu130`）；`bin/relpack.ps1` 同步。
+- **FR-10 测试两层拆分**：`tests/` 拆为通用不变量层（37 项/产品）与私有契约层（13 项/产品 registry），新增产品零测试改动。
+- **知识保留**（Task 8）：`USAGE.zh-CN.md` 七节信息逐节对照落入 `release/README.md`，含 `--network host`、uid 规避、`0x7F7F` 三条排障口径。
+- **FR-9 外部输入登记**：`.agents/rules/delivery-pipeline.md` §7 外部输入清单由两项改为三项（构建器镜像登记为厂商侧构建期输入，不进入交付链）；`docs/00-overview.md`「输入」同步。
+- **Task 11 治理登记**：`docs/` 三篇、`AGENTS.md`（概述/路由树/路由表/P0 约束速览）、`README.md`（关系表/目录结构/命令表）同步为两产品口径。
+
+**影响（交付骨架契约变化点）**：`xmnn-runtime` 对外契约零变化；新产品 `products/xmflow-cli/release/` 为新客户契约（`compose.yaml` 无端口面、`xmnnctl` 命令面与 `.env` 键沿用既有骨架契约）。
+
+**实测事实**：pytest 本地盘副本 159 passed / 16 skipped / 0 failed（SMB/UNC 直跑 3 例属 WSL UNC 翻译环境限制，已登记非回归）；collect 线性（骨架 `skeleton=102=2×50+2`，加假产品 `152=3×50+2`），`test_relpack_cli.py=23` 不变；`guard_crlf_shebang` 函数直跑扫描 11 文件 rc=0；`git check-attr -a` 四路径（`products/xmflow-cli/release/xmnnctl`、`xmnnctl.ps1`、`bin/relpack`、`bin/relpack.ps1`）均 `text: set / eol: lf`（TR-11.2）。Task 10 端到端实跑 blocked：五步 rc 依次 0/0/1/1/1（build Stage 0 构建器镜像 `connection refused` 三次重试败；`podman pull ubuntu:26.04` 三次败于 DNS 污染），根因逐条登记于 tasks.md；底座体积与派生增量实测值待 Unblock Condition 满足后回填。
+
+**验收点**：AC-1（Task 12 删除 client 侧原件后达成）、AC-2/AC-3/AC-7（随 Task 10 真机解禁回填）、AC-4/AC-5/AC-6 已由 Task 5/8/9 取证；规格：[.trae/specs/infra-env/add-xmflow-cli-product/](../../../../.trae/specs/infra-env/add-xmflow-cli-product/spec.md)。

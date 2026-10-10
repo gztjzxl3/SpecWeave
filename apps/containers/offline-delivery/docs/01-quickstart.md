@@ -72,7 +72,9 @@ bin/relpack build --base-image localhost/jupyter-podman-rootless:latest \
 ```
 
 构建上下文为产品目录（`Containerfile.xmnn-runtime` + `deps.txt` + `scripts/` + `smoke/`；
-**不含任何 wheel**）；构建参数 `BASE_IMAGE` / `PIP_MIRROR` / `TORCH_FLAVOR`。
+**不含任何 wheel**）；构建参数 `BASE_IMAGE` / `PIP_MIRROR` / `TORCH_FLAVOR`。形态白名单由
+`product.env` 可选键 `FLAVORS` 驱动（本例 `xmnn-runtime` 未声明，回退全局缺省 `cpu|cu130`；
+`xmflow-cli` 声明 `none|cpu`），白名单外的 `--torch` 取值在触达 podman 前即 fail-fast。
 预期输出结尾形如 `[ OK ] 底座镜像已构建：localhost/xmnn-runtime:base-cpu（不含 xmnn 载荷；载荷由交付侧派生装入）`。
 四层结构与底座守卫（6 项，root/devuser 双跑）由 Containerfile 自带，**任一失败即构建失败**
 （不会产出半成品 tag）：双 ABI / deps.txt 逐条已装 / `pip check` 无新冲突 / torch 形态与实物一致 /

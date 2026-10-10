@@ -53,6 +53,7 @@ task-reports/index
 2026-08-12-short-video-site-ai-fullstack-retro
 2026-08-18-docker-image-deep-slim-milestone
 2026-08-25-xuanspace-milestone-retro
+2026-10-09-caffe-pool-ceil-shape-inference-retro
 hardcode-retrospective-report
 log
 meta-bootstrap-execution-log

@@ -7,6 +7,7 @@
 app-execution-alias-file-not-found-repair-sop
 container-build-env-optimization
 container-verify-script-permission-model
+cross-framework-default-semantics-verification
 cross-migration-link-fix-sop
 docker-build-network-resilience
 docker-build-reference-template-copy

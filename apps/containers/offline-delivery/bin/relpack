@@ -24,7 +24,7 @@ source "$APP_ROOT/bin/lib/common.sh"
 source "$APP_ROOT/bin/lib/pipeline.sh"
 
 PRODUCT_DEFAULT="xmnn-runtime"   # 唯一允许内嵌的产品常量：默认产品名
-FLAVORS="cpu|cu130"              # 形态白名单（须与 Containerfile 的 TORCH_FLAVOR 一致）
+FLAVORS_DEFAULT="cpu|cu130"      # 形态白名单全局缺省：product.env 可选键 FLAVORS 优先（main 内固化）
 MIRRORS="official|tuna|aliyun"   # pip 镜像源白名单（与 Containerfile 分支一致）
 PRODUCT="$PRODUCT_DEFAULT"
 OPT_WHEEL=""; OPT_VERSION=""; OPT_TORCH=""; OPT_BASE=""; OPT_MIRROR=""; OPT_NOCACHE=0; OPT_WRITE=0
@@ -231,6 +231,8 @@ main() {
     done
     if [ -z "${CMD:-}" ]; then usage; exit 1; fi
     load_product_env "$PRODUCT"
+    # 形态白名单固化：product.env 可选键 FLAVORS 优先，未声明回退全局缺省（FR-6）
+    FLAVORS="${FLAVORS:-$FLAVORS_DEFAULT}"
     PRODUCT_DIR="$(product_dir "$PRODUCT")"
     DIST_DIR="$(abs_under_root "$WHEEL_DIST")"
     # 载荷暂存区在**交付包内**（release/payload/）：随包发出，不进镜像构建上下文

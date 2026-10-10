@@ -42,6 +42,7 @@
 | scenario-interval-selection | [场景区间选型法](governance-strategy/scenario-interval-selection.md) | L1-draft | 1 | 0 | 同治理体系内两个相邻根社区/基础软件分支（同源、特性表重叠、名称易混但按工作负载分工）选型：不按知名度与总量横评，按"工作负载形态→商业下游与合规→生命周期→生态技能存量→硬件适配"五问固定顺序归区，再以目标环境最小实测收口，生产承诺只给商业下游。案例：openEuler vs openKylin 后端/桌面双根社区（47 条双侧事实、8 条 V 意见），待第二个非同谱系场景验证升 L1 |
 | reverse-order-doc-learning | [逆序文档学习法](research-knowledge/reverse-order-doc-learning.md) | L1-draft | 1 | 0 | 百篇级、多人贡献、时效不均的社区/Git 文档站学习：不按官方目录顺读，先以版本控制接口逆向建图（文件树量化分布、骨架扫描、提交记录定年），再按学习者问题域（选型→安装→使用→开发→贡献）重组路径，三方交叉验证、冲突显式标注。案例：openKylin 文档平台 237 篇逆向导读（44 事实/4 洞察、首页与新手入口最旧），待第二个非同谱系文档站验证升 L1.5 |
 | docs-as-product | [文档即产品经营法](governance-strategy/docs-as-product.md) | L1-draft | 1 | 0 | 文档已成为对外交付面（用户按文档接入、集成方按文档判兼容、AI 检索按文档作答）且读者异质（终端用户/集成方/内部工程师/机器消费者）时：以"读者契约→最小公理集合→Diátaxis 四型原子分区→质量门内建 CI→预览发布节奏→M1–M5 指标回灌"六步把文档当产品持续经营。案例：QwenWork Canvas《文档即产品》主张页 V6 发布态（22 事实/4 洞察），待第二个非同谱系场景验证升 L1.5 |
+| migration-triggered-convention-alignment | [迁移窗口的结构约定对齐法（迁入即治理）](governance-strategy/migration-triggered-convention-alignment.md) | L1 | 1 | 0 | 外部单体或新包迁入已存在公共约定的统一仓库（monorepo）、迁入动作一次性暴露被迁包隐性私有约定时：在同一迁移窗口内完成私有约定→公共约束对齐（构建后端与参数/语言版本/版本来源/目录文档形态），以未解释偏离数替代功能提交计数，并将可机械判定项纳入自动核验。案例：xuan-compose 迁入玄境 monorepo（2026-08-26 后 38 次增量；同期上游怪癖分级并入 behavior-characterization-freeze），待跨项目验证升 L2 |
 
 ## 成熟度等级说明
 

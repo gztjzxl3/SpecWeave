@@ -85,6 +85,7 @@ meta-retrospective-closed-loop
 meta-review-in-command
 methodology-constructive-validation
 methodology-reflexivity-test
+migration-triggered-convention-alignment
 milestone-breakthrough-assetization-process
 minimal-sufficient-scaffold-selection
 module-size-bug-correlation

@@ -112,6 +112,7 @@ apps/<group>/<app-name>/
 | [short-video-site](samples/short-video-site/README.md) | ReelVibe 短视频网站（AI 全流程开发 Demo） |
 | [designer-portfolio](samples/designer-portfolio/README.md) | 设计师作品集静态网站（纯 HTML/CSS/JS + GSAP，零构建 Demo，首页 + 4 个项目详情页） |
 | [dao-survival-guide](samples/dao-survival-guide/README.md) | 大道极简生存指南（七条判据）交互应用（纯 HTML/CSS/JS 零构建：判牍式七问盖印 + 分层判状 + 最短版本表，源自 OKF 知识包 04） |
+| [maitian-bakehouse](samples/maitian-bakehouse/README.md) | 麦田烘焙 · 烘焙工作室展示网页（纯 HTML/CSS/JS 零构建；温馨文艺落地页：首屏大图 + 6 款招牌产品 + 品牌故事 + 顾客好评 + 联系地址/地图占位，手写体标题 + 奶油棕配色） |
 | [serial-camera-controller](samples/serial-camera-controller/README.md) | 串口控制 USB 摄像头抓图/录像（CH340+OpenCV+pyserial） |
 | [samples-retrospective](samples/samples-retrospective/README.md) | samples 区复盘与经验沉淀 |
 | zleap-workspace-first-prototype | 工作区首个原型（多模型路由，暂缺 README） |

@@ -8,7 +8,7 @@ last_verified: "2026-10-09"
 status: "stable"
 category: "tech"
 author: "SpecWeave Agent"
-source: "derived: xuan-compose docs/parity.md §5.3、README.md、CHANGELOG.md、src/xuan_compose 各模块"
+source: "derived: xuan-compose docs/parity/upstream-quirks.md、README.md、CHANGELOG.md、src/xuan_compose 各模块"
 summary: "汇总 xuan-compose 刻意保留的 podman-compose 上游怪癖（退出码 -1、时间解析、./ 前缀、tag 百分号编码、ls 非标准 JSON 等）、版本门槛、Windows/WSL 取舍、GPL-2.0 许可边界，以及本案例高频报错的定位与处理。"
 ---
 
@@ -30,7 +30,7 @@ xuan-compose 对 podman-compose v1.6.0 逐行对等，以下行为被测试固�
 8. **依赖图容错**：自依赖/未知依赖会"保留边但不展开"，A→B→A 的环按起点剪枝而不是报错——所以依赖名拼错可能不报错而是被忽略，`config` 后务必人工核对。
 9. **`is_list(bytes)` 为 True**：纯 Python 3.14 下 bytes 被视作列表类输入，这是上游语义。
 
-完整清单见库内 [docs/parity.md](../../../../projects/xuanspace/libs/xuan-compose/docs/parity.md) §5.3。
+完整清单见库内 [docs/parity/upstream-quirks.md](../../../../projects/xuanspace/libs/xuan-compose/docs/parity/upstream-quirks.md)。
 
 ## 版本门槛
 

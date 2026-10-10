@@ -16,12 +16,12 @@ source: "../bin/relpack --help"
 | WSL 发行版 | 默认 `podman-machine-default`，可用 `OFFLINE_DELIVERY_WSL_DISTRO` 覆盖 | `wsl.exe -l -v` |
 | podman | WSL 内可用（`build`/`pack`/`smoke` 需要） | `wsl.exe -d <发行版> -- podman info` |
 | podman-compose | **仅 `smoke` 需要** | `wsl.exe -d <发行版> -- podman-compose --version` |
-| 基镜像 | 按产品：`xmnn-runtime` 需 `localhost/jupyter-podman-rootless:latest`；`xmflow-cli` 需 `docker.io/library/ubuntu:26.04`（均作底座基座） | `podman images` |
+| 基镜像 | `localhost/jupyter-podman-rootless:latest` 已存在（底座镜像的基座） | `podman images \| grep jupyter-podman-rootless` |
 | 预构建 wheel | `../workspace/dist/xmnn-*.whl` 存在（= `apps/containers/workspace/dist`） | `ls ../workspace/dist` |
 | `unzip` 或 `bsdtar` | **仅 `deps` 需要**（读 wheel 的 `METADATA`）；缺失时 `deps` 告警跳过校验而非硬失败 | `unzip -v` |
 
 > 本应用零 Python：不需要 `pip install`，不引入 `invoke` / `podman-py`。
-> 缺基镜像时：`xmnn-runtime` 请先在 [jupyter-podman-rootless](../../jupyter-podman-rootless/README.md) 侧产出或加载；`xmflow-cli` 的基镜像 `docker.io/library/ubuntu:26.04` 经 docker.io 拉取或离线预置。本应用不负责基镜像重建。
+> 缺基镜像时请先在 [jupyter-podman-rootless](../../jupyter-podman-rootless/README.md) 侧产出或加载，本应用不负责重建。
 
 ## 2. 逐命令与预期输出
 
@@ -173,24 +173,21 @@ pwsh bin/relpack.ps1 smoke
 
 > `load` 全流程幂等：中断或失败后重跑即可，已完成的步骤（含底座导入）自动跳过。
 
-## 5. 新增交付产品
+## 5. 新增第二个交付产品
 
 CLI 代码**零改动**；只需新增产品目录并在文档登记：
 
-1. 创建 `products/<产品名>/`，落 `product.env`（唯一产品常量来源）。先例：第二产品
-   `xmflow-cli` 的 `product.env`（完整逐行注释见 `products/xmflow-cli/product.env`）：
+1. 创建 `products/<产品名>/`，落 `product.env`（唯一产品常量来源）：
 
    ```ini
-   PRODUCT=xmflow-cli
-   IMAGE_NAME=localhost/xmflow-cli
-   CONTAINERFILE=Containerfile.xmflow-cli
-   WHEEL_GLOB=xmnn-*.whl
-   WHEEL_PREFIX=xmnn-
+   PRODUCT=<产品名>
+   IMAGE_NAME=localhost/<镜像名>
+   CONTAINERFILE=Containerfile.<产品名>
+   WHEEL_GLOB=<wheel 通配>
    WHEEL_DIST=../workspace/dist
-   BASE_IMAGE_DEFAULT=docker.io/library/ubuntu:26.04
-   TORCH_DEFAULT=none
+   BASE_IMAGE_DEFAULT=localhost/jupyter-podman-rootless:latest
+   TORCH_DEFAULT=cpu
    RELEASE_DIR=release
-   FLAVORS="none|cpu"
    ```
 
 2. 在 `products/<产品名>/` 内落：镜像定义（`Containerfile.*` + `.dockerignore`）、

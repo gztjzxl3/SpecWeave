@@ -169,7 +169,7 @@
 
 - **F-1（TR-6.1 部分达成）**：「误装 xmnn 故意污染验证」未实跑。底座守卫两用户全绿已由 Task 10 `build` 22 步 rc=0 实跑覆盖（Containerfile Layer 4 root+xmnn 双跑），但反断言在「误装 xmnn」时确实失败的故意污染验证依赖真机 podman 交互，本环境未执行。**建议**：NPU 真机补做一次故意污染验证（在底座 venv 内误装 xmnn 后跑 `_base_guards.py` 确认第 6 项按预期失败）。
 - **F-2（spec 勘误，已登记）**：spec.md L44「三份原件均已入库跟踪」与 git 事实不符（assets/ 三文件从未入库，git log/ls-files/stash 三重证据为空）。spec 为已批准历史裁定文档，正文不回改，勘误事实已登记于 tasks.md Task 12「SMB 缺失处置核实」块。
-- **F-3（NFR-2 后半未达成，如实登记）**：派生增量（经 bind-mount 改进后 ≈553 MB）与 §9 的 0.18 GB 量级不可比；归因已更新——可避免的架构残留已消除（`COPY` 层消减 ≈177 MB），剩余增量即 wheel 解包实体体量（`_libs` 内 libLLVM.so.22.1 200 MB 级），属载荷真实体量而非架构问题。改进方向（如进一步消减 wheel 实体）属交付契约变更，超出本 spec 范围，留待用户裁决。
+- **F-3（NFR-2 后半未达成 → 已销项 2026-10-10，用户裁决按选项 A）**：派生增量（经 bind-mount 改进后 ≈553 MB）与 §9 的 0.18 GB 量级不可比；归因经 wheel 原件实测（sha256 `a3be2d89…`，158 条目）闭环——压缩 177.6 MB → 解包 518.2 MB，膨胀率 2.92x（`_libs/libLLVM.so.22.1` 解包 196.0 MB/压缩 63.1 MB、3.1x，前四大二进制实体解包合计 403.3 MB vs 压缩 133.5 MB），实测派生增量 ≈553 MB ≈ 解包实体 518.2 MB + 约 35 MB pip 安装开销，量级吻合；§9「增量约 0.18 GB」恰等于 wheel 压缩体量（177.6 MB ≈ 0.18 GB），属估算口径错误（混淆传输体量与安装后实体、未计解包膨胀）而非架构未达标，NFR-2 后半的 0.18 GB 量级对厚载荷产品不成立，剩余增量即 wheel 解包实体体量，属载荷真实体量。处置：spec.md 正文不回改（循 F-2 先例）；技术消减（wheel 瘦身）属厂商侧 wheel 构建变更，而 `release/payload/` 为客户可见契约（§1），影响双产品，须另行立项，超出本 spec 范围。
 - **F-4（构建器最小等价替代）**：Task 10 Stage 0 构建器为最小功能等价镜像（基底 `jupyter-podman-rootless`，含 Python 3.14.6 + `/opt/conda/ssl/cacert.pem`，即 `relocate-cpython.sh` 唯一输入），非完整 native-dev（无 LLVM/Nuitka 实体）。完整 native-dev 镜像与 CPU/GPU 形态验证仍须 NPU 真机执行。
 - **F-5（已知局限）**：`bin/relpack.ps1` L24 `$Flavors = @('cpu','cu130')` 未参数化——改动它即构成第二处 CLI 契约改动（D3 禁止），故不动；Windows 侧 `xmflow-cli` 交付须用 WSL bash 版 `bin/relpack`。
 - **F-6（blocked→解除的过程登记）**：TR-7.2 在 Task 7 记录时为 blocked（本机缺 podman-compose），经 Task 10 Unblock 条件 3 解除后由 smoke 全链绿补齐达成；过程如实登记，未以静态检查冒充端到端通过。

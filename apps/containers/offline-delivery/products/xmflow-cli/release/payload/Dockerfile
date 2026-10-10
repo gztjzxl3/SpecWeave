@@ -38,6 +38,13 @@ LABEL org.specweave.component="xmflow-cli-payload" \
       org.specweave.payload-abi="cp314-gil" \
       org.specweave.base-image="${BASE_IMAGE}"
 
+# 底座镜像默认 USER=xmnn（Containerfile 末行 USER xmnn 烙进镜像配置），派生构建
+# 若不显式切回 root，本层 RUN 会以 uid=1001(xmnn) 执行：向 root 属主的
+# /opt/xmflow/lib/python3.14/site-packages 写 wheel 落 _libs 时报
+# [Errno 13] Permission denied（2026-10-10 smoke 实证），且下方 su 双身份守卫
+# 与 /root/.cache 清理本就要求 root。构建层显式 root，末行恢复 xmnn 运行契约。
+USER root
+
 # 载荷 wheel（只可能有一个：payload/.gitignore 忽略 *.whl，交付流水线每次 stage 一个）
 COPY xmnn-*.whl /tmp/payload/
 
@@ -69,3 +76,6 @@ RUN /bin/bash -lc 'set -euo pipefail ; \
     echo "# version : ${PAYLOAD_VERSION}" ; \
     echo "# base    : ${BASE_IMAGE}" ; \
     echo "########################################################################"'
+
+# 恢复底座运行契约：容器默认身份 xmnn（与 base-<形态> 的 USER 一致）
+USER xmnn

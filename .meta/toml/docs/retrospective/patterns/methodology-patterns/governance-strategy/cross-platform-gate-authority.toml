@@ -1,0 +1,13 @@
+id = "cross-platform-gate-authority"
+domain = "methodology"
+layer = "methodology"
+maturity = "L1"
+validation_count = 1
+reuse_count = 0
+documentation_level = "standard"
+source = "docs/retrospective/patterns/methodology-patterns/governance-strategy/cross-platform-gate-authority.md"
+
+[bindings]
+rules = []
+references = ["template-cross-platform-validation", "dual-mode-submodule-governance", "orchestration-execution-layering"]
+skills = []

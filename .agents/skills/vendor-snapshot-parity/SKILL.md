@@ -97,8 +97,8 @@ xuan-compose（libs/xuan-compose，对拍 podman-compose 1.6.0 / commit e3df104�
 - 对拍测试：`libs/xuan-compose/tests/test_cli_parity.py`、
   `test_command_surface.py`（50 个 subtest）
 - 结论：首跑即零差异（11 维，prog 豁免）；方法与总账见
-  `libs/xuan-compose/docs/parity.md`、
-  `libs/xuan-compose/docs/2026-09-16-xuan-compose-delivery-summary.md` §6 模式 1。
+  `libs/xuan-compose/docs/parity/README.md`、
+  `libs/xuan-compose/docs/patterns/2026-09-16-refactor-patterns.md` 模式 1。
 
 ## 完成判据
 

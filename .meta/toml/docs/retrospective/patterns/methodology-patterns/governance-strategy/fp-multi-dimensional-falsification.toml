@@ -1,0 +1,13 @@
+id = "fp-multi-dimensional-falsification"
+domain = "methodology"
+layer = "methodology"
+maturity = "L1"
+validation_count = 1
+reuse_count = 0
+documentation_level = "standard"
+source = "docs/retrospective/patterns/methodology-patterns/governance-strategy/fp-multi-dimensional-falsification.md"
+
+[bindings]
+rules = []
+references = ["snapshot-parity-migration", "spec-stage7-independent-validation", "knowledge-crystallization-second-validation-sop", "batched-creation-independent-review", "quality-assurance-three-layer-model", "format-evidence-over-memory-pattern"]
+skills = []

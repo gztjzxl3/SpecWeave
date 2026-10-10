@@ -1,0 +1,24 @@
+# xmflow-cli 底座镜像构建上下文卫生
+# 底座镜像的构建输入只有四类：Containerfile.xmflow-cli / deps.txt /
+# scripts/ / smoke/。构建上下文**绝不包含载荷 wheel**——底座不消费任何 whl，
+# 载荷（xmnn 分发包）由交付侧派生时在 release/payload/ 内以
+# `pip install --no-index --no-deps` 装入（§9 底座/载荷分离）。
+# 其余目录（release/ 等）不参与任何 COPY 指令。
+
+# 载荷 wheel 与本地缓存目录（TR-3.2 的结构性保证：即使误把 whl 丢进产品目录，
+# 也不会进入上下文、不会被 COPY 进底座）。
+**/*.whl
+wheels/
+
+# Python 字节码缓存（嵌套目录必须用 **/ 前缀，单段只锚定上下文根）。
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+
+# 本地点 Compose 环境文件
+.env
+
+# Python 测试/工具缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

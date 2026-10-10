@@ -1,0 +1,4 @@
+# 载荷 wheel（xmnn 分发包，内含 xmflow console_script）由交付流水线 stage 进
+# 本目录，二进制不入 git；目录本身保留，Dockerfile 必须随交付包下发。
+*.whl
+!.gitignore

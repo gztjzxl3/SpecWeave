@@ -1,0 +1,191 @@
+# Containerfile.xmflow-cli
+# ------------------------------------------------------------
+# xmflow-cli 客户运行时**底座**镜像（base-<形态>）：可重定位 CPython 3.14 厚镜像
+#
+# 定位（底座 ≠ 载荷，同 §9 承诺，与 xmnn-runtime 同构）：
+#   底座 = 可重定位最小 CPython 3.14 + 隔离 venv（/opt/xmflow）+ 依赖面（deps.txt）
+#          + torch 前端（形态可选）+ 底座守卫。**绝不安装载荷 wheel**。
+#   载荷 = xmnn 分发包（内含 xmflow CLI 的 console_script），由交付侧派生时在
+#          release/payload/Dockerfile 内以 `pip install --no-index --no-deps` 装入。
+#   为什么拆两段：载荷随每个交付版本变化，底座（解释器 + 依赖面）变化极慢；解耦后
+#   同一底座可派生多个交付版本，重打载荷不必重装依赖面，底座自身也可独立缓存。
+#
+# 与 xmnn-runtime 底座的本质差异（这是本产品作为**第二交付产品**的立身之处）：
+#   xmnn-runtime = 薄镜像，FROM 本仓库 jupyter-podman-rootless 谱系，沿用其
+#                  tini/entrypoint/supervisord，交付 JupyterLab + SSH 服务面；
+#   xmflow-cli   = 厚镜像，FROM 公共 ubuntu，自带解释器与 CLI 入口，交付一个
+#                  「挂载模型组目录即可跑 compile/accuracy/infer」的一次性运行环境，
+#                  **无 Jupyter、无 SSH、无凭证面**。
+#   故本产品必须自带 CPython（见 Stage 0），也因此需要底座/载荷分离的额外一层
+#   venv 隔离——/opt/conda 只是裸解释器，所有交付依赖只落在 /opt/xmflow。
+#
+# 所属应用（自包含）：apps/containers/offline-delivery，产品目录 products/xmflow-cli/。
+# 外部输入三个（§7 契约）：构建器镜像（仅 Stage 0，见下）、基镜像
+# docker.io/library/ubuntu:26.04、载荷 wheel（**只在交付侧**，不进本构建上下文）。
+# 工具链：bin/relpack stage|deps|build|pack|smoke（bash + pwsh7）。
+#
+# 产出镜像 tag（由 bin/relpack build 下发；IMAGE_NAME 见 product.env）：
+#   localhost/xmflow-cli:base-<形态>（形态 = none|cpu）
+#   形态感知 tag，**不产出 :latest**：none 与 cpu 是两个互斥的交付形态，共用别名会
+#   让后构建者静默覆盖前者的语义。交付 tag localhost/xmflow-cli:<交付版本> 由交付侧
+#   派生时另行下发，与本文件无关。
+# 构建：bin/relpack -p xmflow-cli build [--torch cpu] [--pip-mirror aliyun]
+#
+# 构建器镜像（OQ-3 裁定）：Stage 0 借 localhost/native-dev:nuitka-4.2.2-hotfix
+#   制备可重定位 CPython。它是**产品级常量**（与 ARG TORCH_VERSION 同构，不进
+#   product.env 必需键、不进 bin/relpack），只存在于构建期，其 10.6 GB 内容
+#   （Nuitka/LLVM/tvm 源码/conda 环境）**一律不进最终镜像**——Stage 1 只 COPY
+#   /pybase 这一份约 40 MB 的解释器前缀。原件里 Stage 0 的 `pip download`
+#   wheelhouse 已按 FR-3b 删除（依赖面改由 deps.txt 在 Layer 2 联网解析）。
+#
+# ABI 契约（不可互换）：
+#   /opt/conda   = 重定位的最小 CPython 3.14（cp314 GIL，**无 site-packages**）
+#   /opt/xmflow  = 由它派生的隔离 venv = 依赖面 + torch 前端 + 载荷安装目标
+#   载荷 wheel tag 为 cp314-cp314，只能装入该 venv。
+#
+# 范式对齐 xmnn-runtime：
+#   - 全部 RUN 显式 /bin/bash -lc（OCI 镜像格式忽略 SHELL 指令）；
+#   - 含引号的验证逻辑固化为 scripts/ 与 smoke/ 下的脚本文件，RUN 行不写
+#     内层双引号 python -c（buildah 二次分词教训）；
+#   - 不在本文件内内嵌载荷版本常量（§7）：交付版本由 bin/relpack 从暂存 wheel
+#     解析后经 LABEL 溯源，底座对版本无感。
+# ------------------------------------------------------------
+
+# ---- Stage 0：制备可重定位最小 CPython（不随最终镜像发布）--------------------
+ARG BUILDER_IMAGE=localhost/native-dev:nuitka-4.2.2-hotfix
+FROM ${BUILDER_IMAGE} AS cpython
+
+COPY scripts/relocate-cpython.sh /tmp/relocate-cpython.sh
+RUN /bin/bash -lc 'set -euo pipefail ; \
+    /bin/bash /tmp/relocate-cpython.sh'
+
+# ---- Stage 1：客户运行时底座 -------------------------------------------------
+ARG BASE_IMAGE=docker.io/library/ubuntu:26.04
+FROM ${BASE_IMAGE}
+
+ARG BASE_IMAGE
+ARG PIP_MIRROR=official
+# torch 版本固定（工具链稳定性：不允许浮动；与 2026-09-16 起真机验证版本一致，
+# torch 2.14.0 ↔ torchvision 0.29.0 官方配套）。升级时同步修改本 ARG 与
+# scripts/install-torch.sh 的默认值、smoke/_base_guards.py 的形态断言。
+ARG TORCH_VERSION=2.14.0
+ARG TORCHVISION_VERSION=0.29.0
+# torch 形态（白名单 none|cpu，由 product.env 的 FLAVORS 声明、bin/relpack 侧
+# 先校验、再经 --torch 下发；缺省取 product.env 的 TORCH_DEFAULT=none）。
+# 交付骨架 compose 段同键同默认 ${TORCH_FLAVOR:-none}。
+ARG TORCH_FLAVOR=none
+
+LABEL org.specweave.component="xmflow-cli" \
+      org.specweave.layer="xmflow-cli-base" \
+      org.specweave.python-abis="venv:cp314-gil" \
+      org.specweave.wheel-contract="xmnn-cp314-self-contained@payload" \
+      org.specweave.torch-version="${TORCH_VERSION}" \
+      org.specweave.torch-flavor="${TORCH_FLAVOR}" \
+      org.specweave.base-image="${BASE_IMAGE}" \
+      org.specweave.cpython="cp314-relocated-conda-prefix"
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    MPLBACKEND=Agg \
+    PATH=/opt/xmflow/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# ------------------------------------------------------------
+# Layer 1：解释器 + 隔离 venv + 客户数据目录
+#   - 零 apt python：直接搬入 Stage 0 制备的重定位 CPython（满足载荷 wheel 的
+#     Requires-Python >=3.14.6，ubuntu 26.04 的 apt python 只有 3.14.4，不够）；
+#     CA 校验面随 /pybase/ssl 一并搬入，故联网层可用的证书路径与前缀一致；
+#   - useradd 在 ubuntu base 的 passwd(essential) 中即可用；**不固定 uid**（base
+#     已占 uid 1000），bind 挂载的写权限以宿主目录属主为准（见 release/README）；
+#   - /workspace/models 与 /workspace/temp 是客户数据契约的落点，镜像本身零模型。
+# ------------------------------------------------------------
+COPY --from=cpython /pybase/ /opt/conda/
+RUN /bin/bash -lc 'set -euo pipefail ; \
+    /opt/conda/bin/python3.14 -m venv /opt/xmflow ; \
+    ( id xmnn >/dev/null 2>&1 || useradd -m -s /bin/bash xmnn ) ; \
+    mkdir -p /workspace/models /workspace/temp ; \
+    chown -R xmnn:xmnn /workspace ; \
+    echo "[xmflow-cli] venv python:" ; /opt/xmflow/bin/python --version'
+
+# ------------------------------------------------------------
+# Layer 2：底座依赖面（deps.txt）
+#   - deps.txt 由 `bin/relpack -p xmflow-cli deps --write` 从暂存 wheel 的
+#     METADATA 生成（只取不含分号的无条件 Requires-Dist；生成方式与来源见该
+#     文件头注），是底座依赖面的**唯一事实源**（§10）；
+#   - 底座**不装载荷**：载荷在交付侧派生时以 `--no-index --no-deps` 装入，故
+#     依赖面必须在此铺满——否则派生镜像带着缺失依赖出厂，故障要到运行期 import
+#     才浮现（构建期无感）；
+#   - pip 镜像选择只在本层配置一次，后续层继承同一份 pip config（单一事实源，
+#     故本层排在 torch 层**之前**）：xmnn-runtime 把 torch 层放在最前是为了复用
+#     约 200 MB 的 CUDA 下载缓存，本产品默认形态为 none（不装 torch），复用
+#     收益不成立，改为优先保证索引配置不被写成两处事实源；
+#   - deps.txt 另留一份到 /opt/xmflow-smoke/deps.txt，供底座守卫逐条核验与镜像
+#     内溯源；/tmp/deps.txt 与 pip 缓存随本层清理。
+# ------------------------------------------------------------
+COPY deps.txt /tmp/deps.txt
+RUN /bin/bash -lc 'set -euo pipefail ; \
+    if [ "${PIP_MIRROR}" = "aliyun" ]; then \
+      /opt/xmflow/bin/python -m pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ ; \
+      /opt/xmflow/bin/python -m pip config set global.trusted-host mirrors.aliyun.com ; \
+      echo "[xmflow-cli] pip mirror: aliyun" ; \
+    elif [ "${PIP_MIRROR}" = "tuna" ]; then \
+      /opt/xmflow/bin/python -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ ; \
+      echo "[xmflow-cli] pip mirror: tuna" ; \
+    else \
+      echo "[xmflow-cli] pip mirror: official (inherited)" ; \
+    fi ; \
+    echo "[xmflow-cli] installing base deps from /tmp/deps.txt" ; \
+    /opt/xmflow/bin/python -m pip install --no-cache-dir -r /tmp/deps.txt ; \
+    mkdir -p /opt/xmflow-smoke ; \
+    cp /tmp/deps.txt /opt/xmflow-smoke/deps.txt ; \
+    rm -f /tmp/deps.txt ; \
+    rm -rf /root/.cache/pip ; \
+    find /opt/xmflow -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true'
+
+# ------------------------------------------------------------
+# Layer 3：torch 前端（形态驱动 none|cpu）
+#   - 独立成层且只 COPY 本层安装脚本：改 install-torch.sh 才失效；
+#   - none（默认）只落一个 marker；cpu 装 torch/torchvision/onnx2pytorch 三件套
+#     ——即载荷 wheel 的 torch extra，载荷侧不会装它，必须在这里显式提供；
+#   - 本产品无 CUDA 形态：交付 §4 P0 禁止 GPU 栈进客户镜像（详见脚本头注）。
+# ------------------------------------------------------------
+COPY scripts/install-torch.sh /opt/xmflow-scripts/install-torch.sh
+RUN /bin/bash -lc 'set -euo pipefail ; \
+    /bin/bash /opt/xmflow-scripts/install-torch.sh'
+
+# ------------------------------------------------------------
+# Layer 4：守卫脚本 + 底座守卫（root 与 xmnn 双身份，任一失败即构建失败）
+#   守卫覆盖：重定位解释器与 venv ABI + stdlib 关键扩展可导入 / deps.txt 每条
+#   依赖已装 / pip check 无冲突 / torch 形态与实物一致（marker vs 实际 import 与
+#   torch.version.cuda，none|cpu）/ 非 root（xmnn）身份可用（venv 可执行、
+#   deps.txt 可读、/workspace/temp 可写）/ **反断言：载荷未安装**（import 载荷
+#   模块必须失败，venv 内无 xmnn 残留与 xmflow 脚本）。项数与 smoke/ 守卫
+#   docstring、release/README 的清单逐字一致（§11）；本层 root + xmnn 的整守卫
+#   双跑对应守卫第 5 项的身份维度。
+# ------------------------------------------------------------
+COPY scripts/ /opt/xmflow-scripts/
+COPY smoke/ /opt/xmflow-smoke/
+RUN /bin/bash -lc 'set -euo pipefail ; \
+    chmod -R a+rX /opt/xmflow-scripts /opt/xmflow-smoke ; \
+    /opt/xmflow/bin/python /opt/xmflow-smoke/_base_guards.py ; \
+    su -s /bin/bash xmnn -c "cd /opt/xmflow-smoke && /opt/xmflow/bin/python _base_guards.py" >/dev/null && \
+      echo "[OK] xmnn base guard access" ; \
+    find /opt/xmflow-smoke -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null ; \
+    find /opt/xmflow-smoke -type f -name "*.pyc" -delete 2>/dev/null ; \
+    echo "########################################################################" ; \
+    echo "# XMFLOW-CLI BASE IMAGE BUILD COMPLETE (base-${TORCH_FLAVOR})" ; \
+    echo "# interpreter : /opt/conda (cp314 GIL, relocated) -> venv /opt/xmflow" ; \
+    echo "# deps        : deps.txt runtime deps installed into the venv" ; \
+    echo "# torch       : flavor=${TORCH_FLAVOR} (pin ${TORCH_VERSION} / ${TORCHVISION_VERSION})" ; \
+    echo "# payload     : NOT INSTALLED - delivery side derives via \`xmnnctl load\`" ; \
+    echo "#               (release/payload/Dockerfile -> pip install --no-index --no-deps)" ; \
+    echo "# entrypoint  : /opt/xmflow/bin/xmflow  (provided by the payload)" ; \
+    echo "########################################################################"'
+
+# ------------------------------------------------------------
+# 客户运行契约：入口由载荷提供的 console_script 决定；镜像内无 Jupyter/SSH 面，
+# 因此不声明任何 EXPOSE，端口由客户在宿主侧自行决定。
+# ------------------------------------------------------------
+VOLUME ["/workspace/models", "/workspace/temp"]
+WORKDIR /workspace
+USER xmnn
+ENTRYPOINT ["/opt/xmflow/bin/xmflow"]
+CMD ["--help"]

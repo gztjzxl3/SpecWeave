@@ -63,7 +63,8 @@ SpecWeave 根 AGENTS.md（全局规则、Skill、角色、七概念指令）
             └─ offline-delivery/AGENTS.md        ← 离线交付链路入口（嵌套优先；8 项 P0 + 1 rule + 3 docs）
                  ├─ bin/                         ← relpack（bash）+ relpack.ps1（pwsh7）零 Python 打包 CLI
                  ├─ products/<产品名>/            ← 单产品资产；product.env 为参数单一事实源
-                 │    └─ xmnn-runtime/            ← 首个产品：Containerfile + scripts + smoke + wheels + release/ 客户骨架
+                 │    ├─ xmnn-runtime/            ← 首个产品：Containerfile + scripts + smoke + release/ 客户骨架
+                 │    └─ xmflow-cli/              ← 第二产品（纯 CLI，形态 none|cpu）：Containerfile + scripts + smoke + release/ 客户骨架
                  └─ tests/                       ← 交付骨架与 CLI 静态守卫测试（pytest，不建 Python 包）
 ```
 

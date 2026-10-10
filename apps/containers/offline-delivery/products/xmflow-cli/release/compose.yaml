@@ -1,0 +1,41 @@
+---
+# xmflow-cli 客户交付栈 —— 自包含 Compose Specification
+#
+# 本文件不依赖仓库内任何其他文件：无继承片段、无父目录相对路径；
+# Podman 与 Docker 均可直接使用（推荐通过同目录 xmnnctl / xmnnctl.ps1，
+# 它们会按运行时自动叠加 rootless 必需项）。
+#
+# 离线保证：image 必须已由 `xmnnctl load` 从随包 tar.gz 导入；
+# pull_policy: never 禁止启动过程联网拉取镜像。
+# 镜像名固定 localhost/ 前缀：tar 由 podman save 产出，打包机 tag 裸名已归一化，
+# 归档内 RepoTag 即 localhost/xmflow-cli:<ver>，podman/docker load 后名称一致；
+# 若写裸名，docker 会按 docker.io/xmflow-cli 解析并尝试远程拉取（离线必败）。
+# 配置（版本/容器名）统一来自同目录 .env（xmnnctl init 生成）。
+#
+# 本产品是命令行交付工具（xmflow CLI）：无 SSH / Jupyter 端口面、无凭证注入，
+# 数据面只有两个绑定挂载（models 只读 / temp 可写），见 §2 用法。
+
+name: xmflow-cli
+
+services:
+  xmflow-cli:
+    image: localhost/xmflow-cli:${XMNN_VERSION}
+    pull_policy: never
+    container_name: ${XMNN_CONTAINER_NAME:-xmflow-cli}
+    # bridge 在 Docker 下即默认网络；Podman 下规避默认项目网络的
+    # aardvark-dns 用户总线问题（与内部谱系同源决策）。
+    network_mode: bridge
+    # 底座 ENTRYPOINT 是一次性 CLI（xmflow），直接 up 会执行完即退出；
+    # 常驻模式（xmnnctl up / smoke exec 的载体）在 compose 层覆盖为保活命令，
+    # 不改派生镜像的 ENTRYPOINT/CMD 契约。正式跑任务推荐 README §2 的
+    # 一次性 run 用法，up 只是提供一个长期驻留、可随时 exec 的实例。
+    command: ["/bin/bash", "-lc", "exec tail -f /dev/null"]
+    volumes:
+      # 模型组输入（只读）：目录契约见 README §3，防止任务误写输入
+      - ./workspace/models:/workspace/models:ro
+      # 产物与临时区（可写）：compile 产物落 temp/<模型名>/compile/
+      - ./workspace/temp:/workspace/temp
+    labels:
+      app: "xmflow-cli"
+      version: "${XMNN_VERSION}"
+    restart: unless-stopped

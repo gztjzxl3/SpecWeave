@@ -46,15 +46,18 @@ LABEL org.specweave.component="xmflow-cli-payload" \
 USER root
 
 # 载荷 wheel（只可能有一个：payload/.gitignore 忽略 *.whl，交付流水线每次 stage 一个）
-COPY xmnn-*.whl /tmp/payload/
+# 不再 COPY：改用下方 RUN 的 bind 挂载只读注入。COPY 会生成独立镜像层，
+# RUN 内 rm -rf 无法消减（2026-10-10 实测派生残留 177 MB，致 NFR-2 后半未达成）；
+# type=bind 挂载仅在 RUN 执行期可见、不进任何层，派生体积 = 底座 + 解包实体。
+# source=. 即构建上下文根（payload/），保持 xmnn-*.whl 通配契约不变。
 
 # 装载荷（venv = /opt/xmflow，载荷与 console_script 均落此处）+ 双身份守卫 + pip check
-RUN /bin/bash -lc 'set -euo pipefail ; \
+RUN --mount=type=bind,source=.,target=/tmp/payload,ro /bin/bash -lc 'set -euo pipefail ; \
     WHL="$(ls /tmp/payload/xmnn-*.whl | head -1)" ; \
     echo "[payload] installing wheel: $WHL" ; \
     /opt/xmflow/bin/python -m pip install --no-index --no-deps --no-cache-dir "$WHL" ; \
     /opt/xmflow/bin/python -m pip show xmnn | grep -E "^(Name|Version|Location)" ; \
-    rm -rf /tmp/payload /root/.cache/pip ; \
+    rm -rf /root/.cache/pip ; \
     echo "[payload] runtime smoke (root)" ; \
     /opt/xmflow/bin/python /opt/xmflow-smoke/_runtime_smoke.py ; \
     echo "[payload] runtime smoke (xmnn)" ; \

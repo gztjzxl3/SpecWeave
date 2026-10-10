@@ -1,12 +1,13 @@
 """okw CLI：argparse 装配。
 
-子命令：list / status / import / export / unregister / exec / verify / scaffold / ref。
+子命令：list / status / import / export / unregister / exec / verify / scaffold / ref / podman / image。
 """
 
 import argparse
 import sys
 
-from okw import __version__, distro, ref, scaffold, verify
+from okw import __version__, distro, image, podman, ref, scaffold, verify
+
 
 def _print(text: str = "") -> None:
     print(text)
@@ -193,6 +194,143 @@ def build_parser() -> argparse.ArgumentParser:
     p_ref = sub.add_parser("ref", help="openKylin 知识库快速参考")
     p_ref.add_argument("topic", nargs="?", help="主题：series/wsl-troubleshoot/okbs/verify")
 
+    # image 子命令组：build / verify（对齐 podman 组的禁拉取与退出码纪律）
+    image_epilog = (
+        "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；"
+        "2=用法错误或仅 UNKNOWN。全程禁止隐式拉取（仅 build 的 --pull-base 显式放行基底）。"
+    )
+    p_image = sub.add_parser(
+        "image",
+        help="openKylin 开发容器镜像：在发行版内构建与验收",
+        description=(
+            "两步流程：build 在指定发行版内（root 身份）构建 localhost/openkylin-dev:<tag>"
+            "（基镜像默认仅本地，构建上下文自动同步到发行版内 /tmp）；"
+            "verify 验收镜像——本地存在 + 静态探针 + 全量启动健康 + 服务/HTTP，"
+            "容器操作全程 --pull=never 且使用 G3 运行契约参数。"
+        ),
+        epilog=image_epilog,
+    )
+    p_image_sub = p_image.add_subparsers(dest="image_cmd", metavar="<image_cmd>")
+
+    p_img_build = p_image_sub.add_parser(
+        "build",
+        help="在发行版内构建 localhost/openkylin-dev:<tag>（root 身份）",
+        description=(
+            "发行版内 root 身份执行：podman 可用性 → 基镜像本地存在（默认禁拉；"
+            "--pull-base 显式放行）→ 上下文同步（Windows 路径转发行版内 /tmp，"
+            "或 --context 指定发行版内已有目录）→ podman build --format docker。"
+        ),
+        epilog=image_epilog,
+    )
+    p_img_build.add_argument("name", help="发行版名称（wsl -l -v 查看）")
+    p_img_build.add_argument("--tag", default=image.DEFAULT_TAG, help=f"镜像标签（默认 {image.DEFAULT_TAG}）")
+    p_img_build.add_argument(
+        "--base-image",
+        default=image.DEFAULT_BASE_IMAGE,
+        help=f"基底镜像（默认 {image.DEFAULT_BASE_IMAGE}，本地导入的 3.0 rootfs）",
+    )
+    p_img_build.add_argument(
+        "--pull-base",
+        action="store_true",
+        help="基底镜像本地缺失时显式允许拉取（默认禁止任何隐式拉取）",
+    )
+    p_img_build.add_argument("--no-cache", action="store_true", help="构建时禁用层缓存")
+    p_img_build.add_argument(
+        "--context",
+        help="构建上下文目录（Windows 绝对路径或发行版内绝对路径；默认包内 openkylin-dev-container/）",
+    )
+
+    p_img_verify = p_image_sub.add_parser(
+        "verify",
+        help="验收镜像：本地存在 + 静态探针 + 全量启动健康 + 服务/HTTP",
+        description=(
+            "发行版内 root 身份执行：podman 可用性 → 镜像本地存在（禁拉）→ "
+            "静态探针（P1-P8，--entrypoint /bin/bash）→ 后台启动等待 HEALTHCHECK → "
+            "服务探针（SSH/Jupyter 进程、22/8888 端口、Jupyter HTTP 200）→ 清理临时容器。"
+            "--no-boot 时只做静态探针。"
+        ),
+        epilog=image_epilog,
+    )
+    p_img_verify.add_argument("name", help="发行版名称")
+    p_img_verify.add_argument("--image", default=image.DEFAULT_IMAGE, help=f"待验收镜像（默认 {image.DEFAULT_IMAGE}）")
+    p_img_verify.add_argument("--no-boot", action="store_true", help="只做静态探针，不启动服务栈")
+
+    # podman 子命令组：preflight / install / verify
+    podman_epilog = (
+        "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；"
+        "2=用法错误、preflight/verify 仅 UNKNOWN，或 install 未提供 --yes（零写入）。"
+    )
+    p_podman = sub.add_parser(
+        "podman",
+        help="openKylin 发行版内 rootless Podman 预检、安装与验收",
+        description=(
+            "三步流程：先 preflight 只读探测风险项与缺失，"
+            "确认无风险后 install --yes 执行安装与 subuid/subgid 映射追加，"
+            "最后 verify 验收 rootless 上下文；--smoke-image 需本地已存在镜像。"
+        ),
+        epilog=podman_epilog,
+    )
+    p_podman_sub = p_podman.add_subparsers(dest="podman_cmd", metavar="<podman_cmd>")
+
+    p_preflight = p_podman_sub.add_parser(
+        "preflight",
+        help="只读预检：发行版/WSL版本/openKylin身份/APT能力/包候选/subuid+subgid映射",
+        description=(
+            "只读预检，不触发 apt update、不写文件、不改默认发行版星标。"
+            "APT 索引缺失时候选标为 UNKNOWN 并给出行动建议；"
+            "映射已有冲突时 install 阶段将拒绝自动追加。"
+        ),
+        epilog=podman_epilog,
+    )
+    p_preflight.add_argument("name", help="发行版名称（wsl -l -v 查看）")
+
+    p_install = p_podman_sub.add_parser(
+        "install",
+        help="在目标发行版内安装 4 个直接包 + 追加 subuid/subgid 映射（必须 --yes）",
+        description=(
+            "--yes 后将执行：① root 身份 apt update + 复查候选；"
+            "② 安装 4 个直接包（podman/uidmap/slirp4netns/fuse-overlayfs）；"
+            "③ 为默认用户追加 subuid/subgid 映射（仅在标准区间 [100000, 165536) "
+            "   与其它用户无冲突且畸形文件中止时才写入）；"
+            "④ 最后以默认用户身份运行 rootless verify。"
+            "漏 --yes 时仅输出 4 条副作用清单并以退出码 2 中止，不做任何写入。"
+            "不修改软件源、不修改 wsl.conf、不修改默认发行版星标。"
+        ),
+        epilog=podman_epilog,
+    )
+    p_install.add_argument("name", help="发行版名称")
+    p_install.add_argument(
+        "--yes",
+        action="store_true",
+        help=(
+            "显式确认后才执行副作用：(1) 触发 apt update 刷新 APT 索引；"
+            "(2) root 安装 4 个直接包（含传递依赖）；"
+            "(3) 向 /etc/subuid 与 /etc/subgid 追加默认用户映射区间 [100000, 165536) "
+            "（仅在文件完好、同名无冲突、与其它用户不重叠时才写）；"
+            "(4) 运行默认用户身份的 rootless verify。"
+        ),
+    )
+
+    p_verify = p_podman_sub.add_parser(
+        "verify",
+        help="验收默认用户下 rootless Podman 上下文（默认只读，不跑容器）",
+        description=(
+            "默认用户身份检查：subuid/subgid 映射、unshare 是否可用、podman info --rootless。"
+            "默认只读不创建/启动容器；--smoke-image 需本地已存在该镜像，不触发隐式拉取。"
+        ),
+        epilog=podman_epilog,
+    )
+    p_verify.add_argument("name", help="发行版名称")
+    p_verify.add_argument(
+        "--smoke-image",
+        metavar="LOCAL_IMAGE",
+        help=(
+            "存在本地的可用镜像名（REPOSITORY:TAG / 镜像 ID），"
+            "若不存在将直接 FAIL 并提示先在发行版内 podman pull / podman load；"
+            "严禁触发任何隐式 registry 拉取。"
+        ),
+    )
+
     return parser
 
 def main(argv: list[str] | None = None) -> int:
@@ -220,6 +358,44 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_scaffold(args)
     if args.command == "ref":
         return cmd_ref(args)
+    if args.command == "podman":
+        if not args.podman_cmd:
+            subparsers_action = next(
+                a for a in parser._subparsers._group_actions if a.dest == "command"
+            )
+            podman_parser = subparsers_action._name_parser_map["podman"]
+            podman_parser.print_help()
+            return 2
+        if args.podman_cmd == "preflight":
+            return podman.cmd_preflight(args)
+        if args.podman_cmd == "install":
+            return podman.cmd_install(args)
+        if args.podman_cmd == "verify":
+            return podman.cmd_verify(args)
+        subparsers_action = next(
+            a for a in parser._subparsers._group_actions if a.dest == "command"
+        )
+        podman_parser = subparsers_action._name_parser_map["podman"]
+        podman_parser.print_help()
+        return 2
+    if args.command == "image":
+        if not args.image_cmd:
+            subparsers_action = next(
+                a for a in parser._subparsers._group_actions if a.dest == "command"
+            )
+            image_parser = subparsers_action._name_parser_map["image"]
+            image_parser.print_help()
+            return 2
+        if args.image_cmd == "build":
+            return image.cmd_build(args)
+        if args.image_cmd == "verify":
+            return image.cmd_verify(args)
+        subparsers_action = next(
+            a for a in parser._subparsers._group_actions if a.dest == "command"
+        )
+        image_parser = subparsers_action._name_parser_map["image"]
+        image_parser.print_help()
+        return 2
     parser.print_help()
     return 2
 

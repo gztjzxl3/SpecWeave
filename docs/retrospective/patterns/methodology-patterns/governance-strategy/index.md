@@ -129,6 +129,7 @@ seven-concepts-retrospective-report
 seven-concepts-trigger-decision-tree
 short-command-patterns
 simple-task-high-risk
+snapshot-parity-migration
 skill-migration-position-governance
 spec-discoverability-guarantee
 spec-level-defense-in-depth

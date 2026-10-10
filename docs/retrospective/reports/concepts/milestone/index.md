@@ -42,6 +42,7 @@
 | milestone-zhihu-checkin-hub-20260928 | 知乎打卡工作台（零依赖/零凭证本地成品台；真实办公 DraftJS 受信输入攻坚） | 2026-09-28 | 🔶 代码收口/冒烟收尾 | 七概念R→I→V→F→A | 30条事实（157测试/92%、独立审查12 PR pass、文章+想法各1次真实证据）、7条洞察（洞察复刻错/模型心智、Hive舵信号分层、红线结构性不可）、4条V采纳7条（pin反查真实命中）、1个L1模式、7项原子行动项 | [retrospective-zhihu-checkin-hub-milestone-20260928.md](retrospective-zhihu-checkin-hub-milestone-20260928.md) |
 | milestone-specweave-seven-concepts-project-review-20260930 | SpecWeave 七概念方法论全面系统性复盘（100天/3990提交/全项目） | 2026-09-30 | ✅ 已完成 | 七概念R→F→I→E→V→C 深度链路 | 3990提交/100天、2239报告/929模式/10671知识包实测、7成功+7反模式案例、3条四元组洞察（自举规范/门禁反例能力/公私域分离）、6项原子行动项、V四视角自审，G1-G4+V门通过 | [specweave-seven-concepts-project-review-20260930.md](specweave-seven-concepts-project-review-20260930.md) |
 | milestone-real-need-day1-wiki-20261001 | real-need-day1 私域 OKF Wiki 教程任务（Spec Mode+独立审查 PASS 收口） | 2026-10-01 | ✅ 已完成 | 七概念R→I→E→C | 27条客观事实、4条四元组洞察（不落映射表/登记不修闭环/私域同目录治理/生成期脱敏前置）、2个L1模式（单向脱敏四步法+低危登记不修闭环门）、4项原子行动项，G1-G4质量门全部通过 | [real-need-day1-wiki-retrospective-20261001.md](real-need-day1-wiki-retrospective-20261001.md) |
+| milestone-wsl-vhdx-compact-cmd-20261010 | WSL2 VHDX 压缩 skill 门面（基线→压缩→宿主 FreeGiB 闭环，commit 83ab7cafa） | 2026-10-10 | ✅ 已完成 | 七概念R→I→E→V→A→C | 30条客观事实（4文件+690/−2、8步闭环、双基线验收、podman 79.02→33.01GiB/openKylin 48.84→48.21GiB，今日复测 33.02/48.40GiB 对得上）、3条四元组洞察（预期前置基线/外部权威量判据/全局副作用原态恢复）、V四视角8条意见采纳4条（实战计数/toml缺失/黑名单硬门/CI守护）、1个L1模式（写操作门面三基线验收法）、5项原子行动项，G1-G4+V门全部通过 | [wsl-vhdx-compact-cmd-retrospective-20261010.md](wsl-vhdx-compact-cmd-retrospective-20261010.md) |
 
 ## 知识沉淀里程碑模式库
 
@@ -100,6 +101,7 @@ tvm-ffi-200-perspectives-milestone-retrospective-20260824
 veadk-a3-a6-closure-retrospective-20260829
 veadk-python-source-stability-fix-milestone-20260829
 web-content-learning-notes-patterns-20260801
+wsl-vhdx-compact-cmd-retrospective-20261010
 ```
 
 > AI生成

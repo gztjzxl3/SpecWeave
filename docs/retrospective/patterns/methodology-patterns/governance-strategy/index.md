@@ -14,6 +14,7 @@ asset-reuse-last-mile-integration-guide
 automated-stats-three-defense-lines
 availability-heuristic-structural-guard
 axiom-system-consistency-principle
+behavior-characterization-freeze
 bootstrap-driven-self-evolution
 bottleneck-first-refactoring
 bounded-iteration-budget
@@ -31,9 +32,11 @@ config-persistence-full-chain-coverage
 content-sensitivity-routing
 convention-driven-creation
 credential-copy-minimization
+cross-platform-gate-authority
 cross-wiki-reference-directory-first
 data-validation-four-checks
 defensive-programming-first-principles
+dependency-ordered-slice-gates
 dev-env-dockerfile-optimization
 docker-canonical-build-environment
 docs-as-product
@@ -57,6 +60,7 @@ five-layer-governance-architecture
 format-evidence-over-memory-pattern
 four-dimension-margin-framework
 four-negatives-external-dependency
+fp-multi-dimensional-falsification
 governance-four-layer-progressive
 governance-three-stage-evolution
 governance-tier-priority
@@ -129,6 +133,7 @@ seven-concepts-retrospective-report
 seven-concepts-trigger-decision-tree
 short-command-patterns
 simple-task-high-risk
+snapshot-parity-migration
 skill-migration-position-governance
 spec-discoverability-guarantee
 spec-level-defense-in-depth

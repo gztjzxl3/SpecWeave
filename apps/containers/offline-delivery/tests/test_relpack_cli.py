@@ -9,7 +9,8 @@ bash 或可用 WSL 发行版时）与 pwsh 参数解析（有 pwsh 时）。覆�
     pwsh 侧同名子命令与 `-Product/-Version/-Wheel/-Torch/-BaseImage/-PipMirror/-NoCache/-Deps/-Write`）；
   - 关键机制静态存在：底座 tag `<镜像名>:base-<形态>`（**无 :latest**）、
     `podman save`、`gzip -t`、原子 `mv`、CRLF shebang 守卫（且在导出归档**之前**）、
-    torch 标签双键回退、形态白名单 `cpu|cu130`、`product.env` 必需键校验、
+    torch 标签双键回退、形态白名单（`product.env` 可选键 `FLAVORS` 优先，
+    未声明回退全局缺省 `cpu|cu130`）、`product.env` 必需键校验、
     载荷依赖集 `deps`（`Requires-Dist` 无条件项 ↔ `deps.txt`，unzip/bsdtar 回退）；
   - release.json（schema v2）按块解析回归：`payload` 与 `archive` 两块**都含
     `sha256`**，交付侧 awk helper（`release/xmnnctl::manifest_block_field`）取值
@@ -258,10 +259,21 @@ def test_crlf_guard_runs_before_archive_export(bin_dir):
     assert body.index("guard_crlf_shebang") < body.index("podman save")
 
 
+def _flavor_whitelist(relpack_text: str, product_env: dict) -> list[str]:
+    """形态白名单（FR-6）：`product.env` 可选键 `FLAVORS` 优先，未声明回退 relpack 全局缺省。"""
+    flavors = product_env.get("FLAVORS")
+    if flavors is None:
+        return relpack_text.split('FLAVORS_DEFAULT="', 1)[1].split('"', 1)[0].split("|")
+    assert flavors.startswith('"') and flavors.endswith('"'), \
+        "product.env 的 FLAVORS 含 `|`，必须带双引号（source 时防被解析为管道）"
+    return flavors.strip('"').split("|")
+
+
 def test_delivery_version_and_flavor_rules(bin_dir, product_env):
     text = _read(bin_dir / "relpack")
-    # 形态白名单与 pip 镜像源白名单
-    assert 'FLAVORS="cpu|cu130"' in text
+    # 形态白名单（FR-6）：可选键优先、缺省回退全局常量；pip 镜像源白名单不变
+    assert 'FLAVORS_DEFAULT="cpu|cu130"' in text
+    assert 'FLAVORS="${FLAVORS:-$FLAVORS_DEFAULT}"' in text
     assert 'MIRRORS="official|tuna|aliyun"' in text
     assert 'check_enum "$FLAVOR" "$FLAVORS"' in text
     # 覆盖优先级：CLI 旗标 > 环境变量 > product.env 默认值
@@ -269,7 +281,7 @@ def test_delivery_version_and_flavor_rules(bin_dir, product_env):
     assert "${OPT_BASE:-${BASE_IMAGE:-$BASE_IMAGE_DEFAULT}}" in text
     assert "${OPT_MIRROR:-${PIP_MIRROR:-official}}" in text
     assert "TORCH_DEFAULT" in product_env and "BASE_IMAGE_DEFAULT" in product_env
-    assert product_env["TORCH_DEFAULT"] in text.split('FLAVORS="', 1)[1].split('"', 1)[0].split("|")
+    assert product_env["TORCH_DEFAULT"] in _flavor_whitelist(text, product_env)
     # 交付版本：默认取暂存 wheel 版本，`--version` 可显式覆盖
     assert 'ver="${OPT_VERSION:-$wheel_ver}"' in text
 
@@ -396,12 +408,13 @@ def test_product_diff_comes_from_product_env(bin_dir, product_env):
     assert product_env["WHEEL_GLOB"] == f"{product_env['WHEEL_PREFIX']}*.whl"
 
 
-def test_product_env_matches_disk_layout(product_dir, product_env):
+def test_product_env_matches_disk_layout(bin_dir, product_dir, product_env):
     assert product_env["PRODUCT"] == product_dir.name
     assert (product_dir / product_env["CONTAINERFILE"]).is_file()
     assert (product_dir / product_env["RELEASE_DIR"]).is_dir()
     assert product_env["IMAGE_NAME"].startswith("localhost/")
-    assert product_env["TORCH_DEFAULT"] in ("cpu", "cu130")
+    # 形态缺省必须落在本产品的白名单内（可选键优先、回退全局缺省，FR-6）
+    assert product_env["TORCH_DEFAULT"] in _flavor_whitelist(_read(bin_dir / "relpack"), product_env)
     assert product_env["WHEEL_DIST"].startswith("../")
 
 

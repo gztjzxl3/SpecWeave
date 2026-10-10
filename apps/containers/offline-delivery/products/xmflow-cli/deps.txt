@@ -1,0 +1,38 @@
+# =============================================================================
+# xmflow-cli 底座运行时依赖清单（底座镜像 Layer 2 的构建输入）
+#
+# 来源 wheel : xmnn-1.2.1.dev0-cp314-cp314-linux_x86_64.whl
+# sha256     : a3be2d895d3ded252db9194001185e2080030bf0fcd79dace94e6410f20a4b45
+# 生成时间   : 2026-10-09T07:07:15+00:00
+#
+# 生成方式（bin/relpack deps --write）：从载荷 wheel 的 *.dist-info/METADATA 取
+#   Requires-Dist 中**不含分号**的条目（即无环境 marker / extra 的无条件运行时依赖），
+#   去前缀与首尾空白后按排序落盘。
+#
+# 语义：本清单是载荷 wheel 声明的无条件运行时依赖；底座只装这些依赖，
+#       既不装载荷 wheel 本身，也不装任何载荷内容（载荷由交付侧派生时装入）。
+#
+# ⚠️ 警示：本清单变化必须重发底座镜像：bin/relpack build 后重新 pack。
+#    底座与载荷是两条独立发布线：交付侧派生安装载荷时走 --no-index --no-deps，
+#    不会补装缺失依赖；清单变更而未重发底座，派生镜像将带缺失依赖出厂。
+# =============================================================================
+Pillow>=10.0
+attrs>=23.0
+cloudpickle>=3.0
+decorator>=5.1
+matplotlib>=3.8
+numpy>=1.26
+onnx>=1.15
+openpyxl>=3.1
+pandas>=2.1
+protobuf>=4.25
+psutil>=5.9
+pytest>=7.0
+rich>=13.0
+scipy>=1.11
+tabulate>=0.9
+telnetlib3>=2.0
+tomlkit>=0.12
+tqdm>=4.66
+typer>=0.12
+typing_extensions>=4.8

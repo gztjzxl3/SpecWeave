@@ -1,23 +1,21 @@
-"""release/ 客户交付骨架的 daemon-free 结构守卫。
+"""release/ 客户交付骨架的 daemon-free 结构守卫（两层：通用不变量 + 产品私有契约）。
 
 验证随包骨架（compose / 控制脚本 / env 模板）满足"完全独立、面向客户、离线、
 Podman+Docker 双兼容"契约：
   - 零仓库知识：无 extends / 无 build / 无 ../ 路径、release/ 内零 Python；
   - 离线：pull_policy never，镜像固定 localhost/ 前缀（归档内规范名，双运行时一致）；
-  - 凭证最小注入：容器 environment 仅四变量（不使用 env_file）；
-  - SSH host key 持久化；
-  - 双端控制脚本命令同构，凭证生成加密学安全、字符集仅字母数字；
+  - 双端控制脚本命令同构；
   - 骨架内 shebang 脚本全 LF（内核先按字节解析 shebang，`bash\\r` 无法启动）。
 
 底座/载荷分离（2026-09-21）后的追加守卫：载荷暂存区由 `products/<产品>/wheels/`
 迁至 `release/payload/`（其内 `Dockerfile` 负责客户机派生装入、构建期跑 root +
-devuser 双身份载荷守卫与 `pip check`，且不得覆盖底座 `ENTRYPOINT`/`CMD`）；
+用户身份载荷守卫与 `pip check`，且不得覆盖底座 `ENTRYPOINT`/`CMD`）；
 `release.json` 升 schema v2（`payload` 与 `archive` 两块**都含 `sha256`**），两端
 控制脚本一律按块定向取值，旧「全局第一个 sha256」与旧兜底 glob 不得回归。
 
 迁移自 `apps/containers/client/tests/test_release_bundle.py`（该文件随 Task 6 删除），
 三类处置逐条对照：
-  - **保留**：骨架跟踪文件清单、compose 主契约与零仓库知识、podman override 三必需、
+  - **保留**：骨架跟踪文件清单、compose 零仓库知识、podman override 三必需、
     env 模板 LF 与键集合、双端命令同构与凭证字符集/随机源、CRLF shebang 守卫、
     `localhost/` 规范名引用计数与「禁止按运行时前缀分流」、端口预检静态序。
   - **替换**：原依赖 `jpman_client.relpack` 纯函数的用例（`resolve_wheel` /
@@ -30,6 +28,18 @@ devuser 双身份载荷守卫与 `pip check`，且不得覆盖底座 `ENTRYPOINT
     `test_compose_preflight_user_dir_fallback_parity`、
     `test_up_preflights_host_ports_before_compose`）；理由见各用例 docstring。
     pwsh 侧行为用例无需 bash，仍按原样移植。
+
+多产品分层（第二交付产品 xmflow-cli 引入，FR-10）：
+  - **通用不变量层**（`any_product` 夹具驱动，conftest 按 `products/*/` 自动发现）：
+    跨产品一致的契约——TRACKED 结构、零 Python、零 `../`、`pull_policy: never`、
+    CR=0 与 shebang 全 LF、命令面集合、`.env.example` 含 `XMNN_VERSION`、清单按块
+    取值、load 派生链路、规范名引用计数、运行时选择与守护预检、compose 回退、
+    wheel 解析与暂存规则。产品差异一律由 `product.env`（`IMAGE_NAME` /
+    `WHEEL_PREFIX` / `WHEEL_GLOB`）泛化，新增产品自动被覆盖、无需改测试代码。
+  - **产品私有契约层**（`PRODUCT_CONTRACTS` 注册表驱动）：端口面/凭证注入面/命名
+    卷/env 模板精确键集/凭证随机源/写侧 LF/up 端口预检/payload 派生细节等产品专属
+    断言。注册表无条目时私有层用例**显式 skip**（不得静默通过）；新接入产品的
+    私有契约须显式登记一条，语义变化必须在注册表里可见。
 """
 
 import re
@@ -75,6 +85,17 @@ def _find(lines: list, key: str, indent: int = 0) -> int:
         if m and m.group(2) == key:
             return i
     raise AssertionError(f"未找到键 {key!r}（缩进 {indent}）")
+
+
+def _find_opt(lines: list, key: str, indent: int = 0):
+    """同 `_find`，但找不到时返回 None（用于「键必须缺失」方向的契约）。"""
+    for i, line in enumerate(lines):
+        if not _significant(line) or _indent(line) != indent:
+            continue
+        m = _MAPPING.match(line)
+        if m and m.group(2) == key:
+            return i
+    return None
 
 
 def _block(lines: list, idx: int) -> list:
@@ -123,18 +144,122 @@ def _load(path: Path) -> list:
     return path.read_text(encoding="utf-8").splitlines()
 
 
-# ── 骨架文件清单与零 Python 契约 ────────────────────────────────────────────
+def _sole_service(lines: list) -> tuple:
+    """services 块唯一直接子键 → (服务名, 服务映射)。
+
+    两产品交付骨架均为单服务 compose；「恰好一个服务」本身即是交付契约
+    （多服务意味着把编排知识或第二个交付面塞进了客户骨架）。
+    """
+    block = _block(lines, _find(lines, "services", 0))
+    head = _map(block)
+    assert len(head) == 1, f"交付骨架 compose 必须恰含一个服务：{sorted(head)}"
+    name = next(iter(head))
+    return name, _map(_block(block, _find(block, name, 2)))
+
+
+# ── 产品私有契约注册表 ─────────────────────────────────────────────────────
+#
+# 只登记**产品专属**的取值与开关；通用不变量层不读本表。字段语义：
+#   compose_project_name / svc_key / image_ref  compose 主契约的锚定值；
+#   network_mode / restart                      两产品同值，但仍按契约登记（可见性）；
+#   ports / environment_keys                    None = 该产品**不得出现**该键（端口面/
+#                                               凭证注入面缺失即契约的一部分）；
+#   volume_targets                              svc volumes 挂载目标序列（精确）；
+#   named_volumes                               None = 顶层 volumes 键必须缺失；
+#   keepalive_command                           None = 不断言（底座 ENTRYPOINT 常驻）；
+#   env_example_keys                            .env.example 的精确键集合；
+#   smoke_entrypoint                            smoke 一次性容器的显式 --entrypoint；
+#   credential_surface                          凭证生成面（字符集 + 加密学随机源）；
+#   env_writer_lf                               pwsh 写 .env 强制 LF 面；
+#   port_preflight                              up 前宿主端口预检面；
+#   payload_*                                   payload/Dockerfile 派生细节。
+
+_ALNUM_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+PRODUCT_CONTRACTS = {
+    "xmnn-runtime": {
+        "compose_project_name": "xmnn-runtime",
+        "svc_key": "xmnnrt",
+        "image_ref": "localhost/xmnn-runtime:${XMNN_VERSION}",
+        "network_mode": "bridge",
+        "restart": "unless-stopped",
+        "ports": ["${XMNN_SSH_PORT:-2225}:22", "${XMNN_JUPYTER_PORT:-8893}:8888"],
+        "environment_keys": {"USER_PASSWORD", "JUPYTER_TOKEN", "SSH_PUBLIC_KEY", "GRANT_SUDO"},
+        "volume_targets": ["/workspace", "/var/lib/jpman/ssh-host-keys"],
+        "named_volumes": {"xmnn-ssh-host-keys"},
+        "keepalive_command": None,
+        "env_example_keys": {
+            "XMNN_VERSION", "XMNN_CONTAINER_NAME", "XMNN_SSH_PORT",
+            "XMNN_JUPYTER_PORT", "USER_PASSWORD", "JUPYTER_TOKEN",
+            "SSH_PUBLIC_KEY", "GRANT_SUDO",
+        },
+        "smoke_entrypoint": "--entrypoint /opt/conda/bin/python",
+        "credential_surface": True,
+        "env_writer_lf": True,
+        "port_preflight": True,
+        "payload_copy_glob": "COPY xmnn-*.whl /tmp/payload/",
+        "payload_smoke_path": "/opt/xmnnrt-smoke/_runtime_smoke.py",
+        "payload_su_line": "su -s /bin/bash devuser",
+        "payload_pip_check_grep": 'grep -Eq "^xmnn[[:space:]]"',
+        "payload_version_label": 'org.specweave.payload-version="${PAYLOAD_VERSION}"',
+    },
+    "xmflow-cli": {
+        # 命令行交付工具：无 SSH/Jupyter 端口面、无凭证注入、无常驻守护外的
+        # 数据服务；保活靠 compose 层覆盖 command，不改派生镜像 ENTRYPOINT/CMD。
+        "compose_project_name": "xmflow-cli",
+        "svc_key": "xmflow-cli",
+        "image_ref": "localhost/xmflow-cli:${XMNN_VERSION}",
+        "network_mode": "bridge",
+        "restart": "unless-stopped",
+        "ports": None,
+        "environment_keys": None,
+        "volume_targets": ["/workspace/models", "/workspace/temp"],
+        "named_volumes": None,
+        "keepalive_command": 'command: ["/bin/bash", "-lc", "exec tail -f /dev/null"]',
+        "env_example_keys": {"XMNN_VERSION", "XMNN_CONTAINER_NAME"},
+        "smoke_entrypoint": "--entrypoint /opt/xmflow/bin/python",
+        "credential_surface": False,
+        "env_writer_lf": False,
+        "port_preflight": False,
+        "payload_copy_glob": "COPY xmnn-*.whl /tmp/payload/",
+        "payload_smoke_path": "/opt/xmflow-smoke/_runtime_smoke.py",
+        "payload_su_line": "su -s /bin/bash xmnn",
+        "payload_pip_check_grep": 'grep -Eq "^xmnn[[:space:]]"',
+        "payload_version_label": 'org.specweave.payload-version="${PAYLOAD_VERSION}"',
+    },
+}
+
+
+def _contract(product) -> dict:
+    """私有契约层入口：注册表无条目时**显式 skip**（新产品的私有面未经登记，
+    既不得判失败污染通用层取证，更不得静默通过假装已覆盖）。"""
+    c = PRODUCT_CONTRACTS.get(product.name)
+    if c is None:
+        pytest.skip(f"产品 {product.name} 无私有契约条目（显式 skip，不静默通过）")
+    return c
+
+
+def _env_example_keys(release_dir: Path) -> set:
+    keys = set()
+    for line in (release_dir / ".env.example").read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith("#") and "=" in line:
+            keys.add(line.split("=", 1)[0])
+    return keys
+
+
+# ══ 通用不变量层（any_product 驱动，产品增删自动生效）══════════════════════
 
 
 @pytest.mark.parametrize("rel", TRACKED)
-def test_tracked_skeleton_present(release_dir, rel):
-    assert (release_dir / rel).is_file(), rel
+def test_tracked_skeleton_present(any_product, rel):
+    assert (any_product.release_dir / rel).is_file(), rel
 
 
-def test_release_has_no_python_files(release_dir):
+def test_release_has_no_python_files(any_product):
     # workspace/ 是客户运行时可写的用户数据区（交付时仅含 .gitkeep，客户的
     # notebook/模型脚本会在使用中落入），artifacts/ 是镜像归档；两者都不属于
     # "零 Python 控制面"契约的扫描范围。
+    release_dir = any_product.release_dir
     pys = [
         p for p in release_dir.rglob("*.py")
         if p.relative_to(release_dir).parts[0] not in ("artifacts", "workspace")
@@ -142,50 +267,26 @@ def test_release_has_no_python_files(release_dir):
     assert pys == [], f"客户目录不应包含 Python 文件：{pys}"
 
 
-def test_payload_dir_replaces_wheels_dir(product_dir, release_dir):
+def test_payload_dir_replaces_wheels_dir(any_product):
     """载荷暂存区迁移：`products/<产品>/wheels/` 删除 → `release/payload/` 新增。
 
     重构前 CLI 把产品 wheel 暂存到产品目录下的 `wheels/` 并让底座构建上下文
     消费它；重构后底座镜像**不含载荷**，载荷改为随交付包放在 `release/payload/`，
     由客户机 `xmnnctl load` 经派生构建装入。
     """
-    assert not (product_dir / "wheels").exists(), "wheels/ 已随底座/载荷分离删除"
-    payload = release_dir / "payload"
+    assert not (any_product.dir / "wheels").exists(), "wheels/ 已随底座/载荷分离删除"
+    payload = any_product.release_dir / "payload"
     assert payload.is_dir()
     gi = (payload / ".gitignore").read_text(encoding="utf-8")
     assert "*.whl" in gi and "!.gitignore" in gi
     assert (payload / ".keep").is_file()
 
 
-# ── payload/Dockerfile：客户机派生构建契约 ──────────────────────────────────
-#
-# 底座镜像 `localhost/xmnn-runtime:base-<形态>` 只含依赖面 + torch + 守卫脚本，
-# 载荷（xmnn wheel）由 `xmnnctl load` 以本文件为入口在客户机派生装入，产出
-# `localhost/xmnn-runtime:<交付版本>`（与 compose 的 ${XMNN_VERSION} 逐字一致）。
-
-
-def test_payload_dockerfile_derivation_contract(release_dir):
-    text = (release_dir / "payload" / "Dockerfile").read_text(encoding="utf-8")
-    assert "FROM ${BASE_IMAGE}" in text, "派生镜像必须基于随交付包下发的底座 ref"
-    assert "COPY xmnn-*.whl /tmp/payload/" in text
-    # ① 完全离线：禁网 + 跳过依赖解析（依赖面已由底座铺满，缺失即底座漏项）
-    assert "--no-index" in text and "--no-deps" in text
-    # ② 载荷守卫 root + devuser 双身份各跑一次（任一失败即构建失败）
-    assert "/opt/xmnnrt-smoke/_runtime_smoke.py" in text
-    assert text.count("_runtime_smoke.py") == 2, "守卫须 root 与 devuser 各跑一次"
-    assert "su -s /bin/bash devuser" in text
-    # ③ 依赖区间校验：pip check 全量打印，仅 xmnn 相关冲突判交付失败
-    assert "-m pip check" in text
-    assert 'grep -Eq "^xmnn[[:space:]]"' in text
-    # ④ LABEL 载荷版本（派生镜像可溯源）
-    assert 'org.specweave.payload-version="${PAYLOAD_VERSION}"' in text
-
-
-def test_payload_dockerfile_keeps_base_entrypoint(release_dir):
+def test_payload_dockerfile_keeps_base_entrypoint(any_product):
     """派生只是「加一层载荷」：不得出现 ENTRYPOINT/CMD 指令行（服务契约沿用底座）。"""
-    text = (release_dir / "payload" / "Dockerfile").read_text(encoding="utf-8")
+    text = (any_product.release_dir / "payload" / "Dockerfile").read_text(encoding="utf-8")
     assert not re.search(r"(?m)^\s*(ENTRYPOINT|CMD)\s", text), \
-        "派生构建不得覆盖 ENTRYPOINT/CMD（tini -> entrypoint.sh -> supervisord）"
+        "派生构建不得覆盖 ENTRYPOINT/CMD"
 
 
 # ── xmnnctl / xmnnctl.ps1：schema v2 清单按块取值 + 底座导入 + 载荷派生 ──────
@@ -195,7 +296,8 @@ def test_payload_dockerfile_keeps_base_entrypoint(release_dir):
 # 「完整性校验失败」。故两端一律按块定向取值，且旧兜底 glob 不得回归。
 
 
-def test_ctl_manifest_read_is_block_scoped(release_dir):
+def test_ctl_manifest_read_is_block_scoped(any_product):
+    release_dir = any_product.release_dir
     bash = (release_dir / "xmnnctl").read_text(encoding="utf-8")
     pwsh = (release_dir / "xmnnctl.ps1").read_text(encoding="utf-8")
     # bash：awk 按块定向取值；顶层字段复用同一 helper（不另立抓取逻辑）
@@ -213,16 +315,21 @@ def test_ctl_manifest_read_is_block_scoped(release_dir):
 
 
 @pytest.mark.parametrize("script", ["xmnnctl", "xmnnctl.ps1"])
-def test_ctl_scripts_have_no_legacy_archive_lookup(release_dir, script):
-    """旧「全局第一个 sha256」与旧兜底 glob 已废除，不得回归。"""
-    text = (release_dir / script).read_text(encoding="utf-8")
+def test_ctl_scripts_have_no_legacy_archive_lookup(any_product, script):
+    """旧「全局第一个 sha256」与旧兜底 glob 已废除，不得回归。
+
+    归档名兜底 glob 按产品 `IMAGE_NAME` 末段泛化（xmnn-runtime / xmflow-cli 各自的
+    旧命名都不允许出现）。
+    """
+    text = (any_product.release_dir / script).read_text(encoding="utf-8")
+    short = any_product.env["IMAGE_NAME"].split("/")[-1]
     assert """grep -o '"sha256"'""" not in text, "全局第一个 sha256 写法已废除"
-    assert "xmnn-runtime-*.tar.gz" not in text, "旧兜底 glob 已废除（归档按清单文件名取）"
-    assert "xmnn-runtime-$ver.tar.gz" not in text, "旧按交付版本猜归档名已废除"
+    assert f"{short}-*.tar.gz" not in text, "旧兜底 glob 已废除（归档按清单文件名取）"
+    assert f"{short}-$ver.tar.gz" not in text, "旧按交付版本猜归档名已废除"
 
 
-def test_ctl_load_imports_base_and_derives_payload(release_dir):
-    bash = (release_dir / "xmnnctl").read_text(encoding="utf-8")
+def test_ctl_load_imports_base_and_derives_payload(any_product):
+    bash = (any_product.release_dir / "xmnnctl").read_text(encoding="utf-8")
     # 清单必须成套：缺 release.json 即 fail-fast
     assert "交付包不完整：缺 artifacts/release.json" in bash
     # 版本自检：.env 的 XMNN_VERSION 必须与清单 version 一致
@@ -238,11 +345,12 @@ def test_ctl_load_imports_base_and_derives_payload(release_dir):
     assert '--build-arg "BASE_IMAGE=$base_ref"' in bash
     assert '--build-arg "PAYLOAD_VERSION=$ver"' in bash
     assert '-t "$img_ref" payload' in bash
-    assert 'img_ref="localhost/xmnn-runtime:$ver"' in bash
+    assert f'img_ref="{any_product.env["IMAGE_NAME"]}:$ver"' in bash
 
 
-def test_ctl_scripts_load_branch_parity(release_dir):
+def test_ctl_scripts_load_branch_parity(any_product):
     """两端关键分支对等（命名风格各异，语义同一组）。"""
+    release_dir = any_product.release_dir
     bash = (release_dir / "xmnnctl").read_text(encoding="utf-8")
     pwsh = (release_dir / "xmnnctl.ps1").read_text(encoding="utf-8")
     assert "manifest_block_field" in bash and "Get-ManifestField" in pwsh
@@ -256,103 +364,49 @@ def test_ctl_scripts_load_branch_parity(release_dir):
         assert "payload/" in text
 
 
-# ── compose.yaml：零仓库知识 + 主契约 ───────────────────────────────────────
+# ── compose.yaml：零仓库知识 ────────────────────────────────────────────────
 
 
-def test_no_repo_knowledge_in_compose(release_dir):
-    text = (release_dir / "compose.yaml").read_text(encoding="utf-8")
-    lines = _load(release_dir / "compose.yaml")
-    svc = _map(_block(lines, _find(lines, "xmnnrt", 2)))
-    # 无 YAML extends 键（结构级断言，不靠注释文本）；无父目录相对路径；无 build
-    assert "extends" not in svc
+def test_no_repo_knowledge_in_compose(any_product):
+    p = any_product.release_dir / "compose.yaml"
+    text = p.read_text(encoding="utf-8")
+    lines = _load(p)
+    _, svc = _sole_service(lines)
+    # 镜像一律为归档内规范名 + 交付 tag，且禁止启动时拉取
+    assert svc["image"] == f'{any_product.env["IMAGE_NAME"]}:${{XMNN_VERSION}}'
+    assert svc["pull_policy"] == "never"
+    # 无父目录相对路径；无 YAML extends / build 键（结构级断言，不靠注释文本）。
+    # 原私有层的 `assert "extends" not in svc` 已被本正则蕴含（等价迁移后删去）。
     assert "../" not in text
     assert not re.search(r"(?m)^\s*(extends|build)\s*:", text), \
         "交付骨架不得 extends / build（镜像一律来自本地归档）"
 
 
-def test_main_compose_contract(release_dir):
-    lines = _load(release_dir / "compose.yaml")
-    assert _map(lines)["name"] == "xmnn-runtime"
-    svc = _map(_block(lines, _find(lines, "xmnnrt", 2)))
-    # localhost/ 规范名：podman 打包时裸名归一化进入归档，docker load 原样保留；
-    # 裸名在 docker 下会被解析为 docker.io/xmnn-runtime 触发远程拉取。离线禁止拉取。
-    assert svc["image"] == "localhost/xmnn-runtime:${XMNN_VERSION}"
-    assert svc["pull_policy"] == "never"
-    assert svc["network_mode"] == "bridge"
-    assert _seq(_block(lines, _find(lines, "ports", 4))) == [
-        "${XMNN_SSH_PORT:-2225}:22",
-        "${XMNN_JUPYTER_PORT:-8893}:8888",
-    ]
-    # 仅凭证四变量注入容器（无 env_file）
-    assert "env_file" not in svc
-    assert set(_map(_block(lines, _find(lines, "environment", 4)))) == {
-        "USER_PASSWORD", "JUPYTER_TOKEN", "SSH_PUBLIC_KEY", "GRANT_SUDO",
-    }
-    # workspace bind + SSH host key named volume
-    targets = [v.split(":")[1] for v in _seq(_block(lines, _find(lines, "volumes", 4)))]
-    assert targets == ["/workspace", "/var/lib/jpman/ssh-host-keys"]
-    assert svc["restart"] == "unless-stopped"
-    named = _map(_block(lines, _find(lines, "volumes", 0)))
-    assert set(named) == {"xmnn-ssh-host-keys"}
-    assert named["xmnn-ssh-host-keys"] == "{}"
-
-
-def test_podman_override_rootless_essentials(release_dir):
-    text = (release_dir / "compose.podman.yaml").read_text(encoding="utf-8")
-    lines = _load(release_dir / "compose.podman.yaml")
-    svc = _map(_block(lines, _find(lines, "xmnnrt", 2)))
-    assert _seq(_block(lines, _find(lines, "devices", 4))) == ["/dev/fuse:/dev/fuse"]
-    assert _seq(_block(lines, _find(lines, "security_opt", 4))) == ["label=disable"]
-    assert svc["cgroupns"] == "host"
-    assert "privileged" not in svc
-    # 「严禁 privileged」在文件注释里出现，故按 YAML 键判据而非子串判据
-    assert not re.search(r"(?m)^\s*privileged\s*:", text)
-
-
 # ── .env.example 与 artifacts/.gitignore ────────────────────────────────────
 
 
-def test_env_template_lf_only(release_dir):
-    data = (release_dir / ".env.example").read_bytes()
+def test_env_template_lf_only(any_product):
+    data = (any_product.release_dir / ".env.example").read_bytes()
     assert b"\r" not in data, ".env.example 必须 LF 换行（CRLF 会污染 bash/compose）"
 
 
-def test_env_example_keys(release_dir):
-    keys = set()
-    for line in (release_dir / ".env.example").read_text(encoding="utf-8").splitlines():
-        if line and not line.startswith("#") and "=" in line:
-            keys.add(line.split("=", 1)[0])
-    assert keys == {
-        "XMNN_VERSION", "XMNN_CONTAINER_NAME", "XMNN_SSH_PORT",
-        "XMNN_JUPYTER_PORT", "USER_PASSWORD", "JUPYTER_TOKEN",
-        "SSH_PUBLIC_KEY", "GRANT_SUDO",
-    }
+def test_env_example_contains_version_key(any_product):
+    # 版本键是交付骨架的最低要求（compose 与 xmnnctl 版本自检都依赖它）；
+    # 精确键集合属产品私有契约，见 test_env_example_exact_keys。
+    assert "XMNN_VERSION" in _env_example_keys(any_product.release_dir)
 
 
-def test_artifacts_gitignore_keeps_itself(release_dir):
-    text = (release_dir / "artifacts" / ".gitignore").read_text(encoding="utf-8")
+def test_artifacts_gitignore_keeps_itself(any_product):
+    text = (any_product.release_dir / "artifacts" / ".gitignore").read_text(encoding="utf-8")
     assert "*" in text and "!.gitignore" in text
 
 
-# ── 双端控制脚本：命令同构 / 凭证字符集 / CRLF 免疫 ─────────────────────────
+# ── 双端控制脚本：命令面同构 / CRLF 读侧免疫 ────────────────────────────────
 
 
-@pytest.mark.parametrize("script", ["xmnnctl", "xmnnctl.ps1"])
-def test_ctl_scripts_command_parity_and_security(release_dir, script):
-    text = (release_dir / script).read_text(encoding="utf-8")
-    for cmd in ("init", "load", "up", "down", "ps", "logs", "smoke"):
-        assert cmd in text, (script, cmd)
-    # smoke 一次性容器必须显式 --entrypoint（否则默认 entrypoint 命令模式失败）
-    assert "--entrypoint /opt/conda/bin/python" in text
-    # 凭证字符集仅字母数字（bash 区间 / pwsh 显式字符集）
-    if script == "xmnnctl":
-        assert "A-Za-z0-9" in text
-    else:
-        assert "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" in text
-
-
-def test_ctl_command_surface_parity(release_dir):
+def test_ctl_command_surface_parity(any_product):
     """两端子命令集合同构（bash `case` 分发 ↔ pwsh `switch` 分发）。"""
+    release_dir = any_product.release_dir
     bash = (release_dir / "xmnnctl").read_text(encoding="utf-8")
     pwsh = (release_dir / "xmnnctl.ps1").read_text(encoding="utf-8")
     bash_body = bash.split('case "$cmd" in', 1)[1].split("esac", 1)[0]
@@ -364,13 +418,14 @@ def test_ctl_command_surface_parity(release_dir):
     assert pwsh_cmds == expected, pwsh_cmds
 
 
-def test_scripts_defend_against_crlf_env(release_dir):
-    bash = (release_dir / "xmnnctl").read_text(encoding="utf-8")
-    pwsh = (release_dir / "xmnnctl.ps1").read_text(encoding="utf-8")
-    # bash 读 .env 去 CR；pwsh 写 .env 强制 LF（WriteAllText + LF join）
+def test_scripts_defend_against_crlf_env(any_product):
+    # 读侧免疫（跨产品不变量）：bash 读 .env 去 CR；pwsh 读值去 CR。
+    # 写侧（pwsh WriteAllText + LF join）属产品私有契约，见
+    # test_pwsh_env_writer_forces_lf——xmflow-cli 无 init 写 .env 凭证面。
+    bash = (any_product.release_dir / "xmnnctl").read_text(encoding="utf-8")
+    pwsh = (any_product.release_dir / "xmnnctl.ps1").read_text(encoding="utf-8")
     assert "tr -d '\\r'" in bash
     assert 'TrimEnd("`r")' in pwsh
-    assert "WriteAllText" in pwsh and '"`n"' in pwsh
 
 
 # 改名自 `relpack.find_crlf_shebang_scripts`（该纯函数随 client 删除）：等价实现
@@ -394,10 +449,10 @@ def _find_crlf_shebang_scripts(root: Path) -> list:
     return bad
 
 
-def test_release_shebang_scripts_are_lf_only(release_dir):
+def test_release_shebang_scripts_are_lf_only(any_product):
     # shebang 在解释器启动前由内核按字节解析（'bash\r' 无法启动），
     # 脚本内 tr -d '\r' 救不了自己的 shebang——随包 POSIX 脚本必须全 LF。
-    assert _find_crlf_shebang_scripts(release_dir) == []
+    assert _find_crlf_shebang_scripts(any_product.release_dir) == []
 
 
 def test_crlf_shebang_scanner_detects_bad_and_skips(tmp_path):
@@ -414,17 +469,17 @@ def test_crlf_shebang_scanner_detects_bad_and_skips(tmp_path):
     assert [p.name for p in _find_crlf_shebang_scripts(tmp_path)] == ["ctl"]
 
 
-# ── 运行时选择与守护可达性（静态）───────────────────────────────────────────
+# ── 运行时选择与守护可达性（静态，跨产品不变量）─────────────────────────────
 
 
-def test_loaded_image_uses_localhost_canonical_name(release_dir):
-    # 归档由 podman save 产出：打包机 tag 时裸名已归一化，tar 内 RepoTag 固定
-    # localhost/xmnn-runtime:<ver>；docker load 原样保留（podman 会在解析裸名时
-    # 隐式补 localhost/，docker 不会）。双端脚本的 load 后 inspect 与一次性
-    # smoke run 必须统一使用 localhost/ 全称，且不得再按运行时做条件前缀分流。
+def test_loaded_image_uses_localhost_canonical_name(any_product):
+    # 归档由 podman save 产出：打包机 tag 时裸名归一化进入归档，docker load 原样保留；
+    # 裸名在 docker 下会被解析为 docker.io/<名> 触发远程拉取。离线禁止拉取。
+    # 规范名按产品 IMAGE_NAME 泛化（localhost/ 前缀本身即契约）。
+    release_dir = any_product.release_dir
     bash = (release_dir / "xmnnctl").read_text(encoding="utf-8")
     pwsh = (release_dir / "xmnnctl.ps1").read_text(encoding="utf-8")
-    canonical = "localhost/xmnn-runtime:$ver"
+    canonical = f'{any_product.env["IMAGE_NAME"]}:$ver'
     # 每端恰好两处：load 后 inspect 引用 + smoke 一次性容器镜像引用
     assert bash.count(canonical) == 2
     assert pwsh.count(canonical) == 2
@@ -435,17 +490,10 @@ def test_loaded_image_uses_localhost_canonical_name(release_dir):
     assert 'if ($Script:Rt -eq "podman") { $imgRef' not in pwsh
 
 
-def test_bash_uses_urandom_pwsh_uses_crypto_rng(release_dir):
-    bash = (release_dir / "xmnnctl").read_text(encoding="utf-8")
-    pwsh = (release_dir / "xmnnctl.ps1").read_text(encoding="utf-8")
-    assert "/dev/urandom" in bash
-    assert "RandomNumberGenerator" in pwsh
-    assert "Get-Random" not in pwsh
-
-
-def test_compose_preflight_user_dir_fallback_parity(release_dir):
+def test_compose_preflight_user_dir_fallback_parity(any_product):
     # pipx/pip --user 安装的 compose 不在 PATH 时（WSL 非登录 shell / 最小化环境），
     # 两侧预检都必须回退用户级目录并给出可操作提示，而非直接判"缺少 compose"。
+    release_dir = any_product.release_dir
     bash = (release_dir / "xmnnctl").read_text(encoding="utf-8")
     pwsh = (release_dir / "xmnnctl.ps1").read_text(encoding="utf-8")
     assert "find_companion" in bash and "$HOME/.local/bin" in bash
@@ -458,10 +506,10 @@ def test_compose_preflight_user_dir_fallback_parity(release_dir):
 
 
 @pytest.mark.parametrize("script", ["xmnnctl", "xmnnctl.ps1"])
-def test_daemon_preflight_and_load_exit_guard(release_dir, script):
+def test_daemon_preflight_and_load_exit_guard(any_product, script):
     # CLI 已安装 ≠ 守护可达：load/up/smoke 前必须预检；load 退出码必须检查，
     # 否则 daemon 中断会被误报为"镜像中没有/版本不符"（2026-09-17 实测踩坑）。
-    text = (release_dir / script).read_text(encoding="utf-8")
+    text = (any_product.release_dir / script).read_text(encoding="utf-8")
     assert "podman machine start" in text
     assert "Docker Desktop" in text
     assert "镜像导入失败" in text
@@ -471,10 +519,10 @@ def test_daemon_preflight_and_load_exit_guard(release_dir, script):
 
 
 @pytest.mark.parametrize("script", ["xmnnctl", "xmnnctl.ps1"])
-def test_runtime_selection_exposed_with_auto(release_dir, script):
+def test_runtime_selection_exposed_with_auto(any_product, script):
     # 运行时必须可经命令行选择：podman|docker|auto 三值、默认 auto 探测，
     # 旧的"仅二值"错误文案不得残留（防止回退为 env-only 设计）。
-    text = (release_dir / script).read_text(encoding="utf-8")
+    text = (any_product.release_dir / script).read_text(encoding="utf-8")
     assert "podman|docker|auto" in text
     assert "只允许 podman|docker（当前" not in text
     assert "auto" in text
@@ -491,7 +539,7 @@ def test_runtime_selection_exposed_with_auto(release_dir, script):
         assert "$env:XMNN_RUNTIME" in text and '"auto"' in text
 
 
-def test_runtime_choice_fail_fast_messages(release_dir):
+def test_runtime_choice_fail_fast_messages(any_product):
     """取代原 `bash` 行为用例（`_BASH_PARSE_*` / `_BASH_RUNTIME_BAD_CHOICE`）：
     以静态断言锁定同批判据——非法值/缺值与两种"未找到运行时"分支的 fail-fast
     文案，以及参数扫描形态（`--runtime=`/`-rX`/`--` 分隔）。
@@ -499,6 +547,7 @@ def test_runtime_choice_fail_fast_messages(release_dir):
     无 bash；经 wsl.exe 驱动 `sed '$d'` + 多行 harness 存在参数重组风险，原文件
     注释已实测踩坑），而上述判据可等价静态表达。
     """
+    release_dir = any_product.release_dir
     bash = (release_dir / "xmnnctl").read_text(encoding="utf-8")
     pwsh = (release_dir / "xmnnctl.ps1").read_text(encoding="utf-8")
     for text in (bash, pwsh):
@@ -516,34 +565,7 @@ def test_runtime_choice_fail_fast_messages(release_dir):
     assert '$env:XMNN_RUNTIME' in pwsh
 
 
-# ── up 前宿主端口预检（跨 podman/docker 引擎冲突 fail-fast）─────────────────
-#
-# 背景：两引擎共享宿主网络命名空间却互不可见对方的端口占用；rootless 的转发
-# 表现为宿主用户进程（rootlessport）。不预检时 compose up 在绑定阶段才报
-# "bind: address already in use"，且不指认占用者。预检必须：
-#   1) 直接探测宿主网络栈（不能只查当前引擎 ps）；
-#   2) 本引擎同名容器自持有端口时豁免（幂等 up / 改配置重建）；
-#   3) 被占时给出对侧 down 指引与"并存需端口+容器名+workspace 三隔离"指引。
-
-
-@pytest.mark.parametrize("script", ["xmnnctl", "xmnnctl.ps1"])
-def test_up_preflights_host_ports_before_compose(release_dir, script):
-    text = (release_dir / script).read_text(encoding="utf-8")
-    if script == "xmnnctl":
-        body = text.split("do_up() {", 1)[1].split("\n}", 1)[0]
-        assert body.index("preflight_ports") < body.index("compose up -d")
-        assert "port_holder" in text and "self_publishes_port" in text
-    else:
-        body = text.split("function Do-Up {", 1)[1].split("\n}", 1)[0]
-        assert body.index("Assert-HostPorts") < body.index('Invoke-Compose "up -d"')
-        assert "Test-HostPortListening" in text and "Test-SelfPublishesPort" in text
-    # 可操作指引三件套：对侧运行时 down、并存改容器名、workspace 不可共享
-    assert "另一运行时" in text
-    assert "XMNN_CONTAINER_NAME" in text
-    assert "workspace" in text
-
-
-# ── pwsh 侧参数解析与端口预检行为（daemon-free；无 pwsh 时跳过）──────────────
+# ── pwsh 侧参数解析行为（daemon-free；无 pwsh 时跳过）───────────────────────
 #
 # 原 bash 行为用例的等价移植面：pwsh 无需仓库内 POSIX bash，直接以 pwsh 驱动。
 
@@ -597,17 +619,226 @@ _no_pwsh = pytest.mark.skipif(shutil.which("pwsh") is None, reason="环境无 pw
 
 
 @_no_pwsh
-def test_pwsh_parse_global_args_matrix(release_dir, tmp_path):
-    proc = _run_pwsh_lib_harness(release_dir, _PWSH_PARSE_HARNESS, tmp_path)
+def test_pwsh_parse_global_args_matrix(any_product, tmp_path):
+    proc = _run_pwsh_lib_harness(any_product.release_dir, _PWSH_PARSE_HARNESS, tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "PS_PARSE_OK" in proc.stdout, proc.stdout + proc.stderr
 
 
 @_no_pwsh
-def test_pwsh_runtime_flag_without_value_fails_fast(release_dir, tmp_path):
-    proc = _run_pwsh_lib_harness(release_dir, _PWSH_PARSE_MISSING_VALUE, tmp_path)
+def test_pwsh_runtime_flag_without_value_fails_fast(any_product, tmp_path):
+    proc = _run_pwsh_lib_harness(any_product.release_dir, _PWSH_PARSE_MISSING_VALUE, tmp_path)
     assert proc.returncode == 1
     assert "需要参数" in proc.stdout + proc.stderr
+
+
+# ── 原 relpack 纯函数用例的等价静态替代 ─────────────────────────────────────
+#
+# 原文件末尾三个用例（`test_resolve_wheel_from_fake_dir` /
+# `test_resolve_wheel_missing_raises` / `test_to_wsl_path`）依赖
+# `jpman_client.relpack`——该模块随 client 侧移除（Task 6）不复存在；其语义
+# 现由 `bin/lib/pipeline.sh`（`wheel_version` / `stage_wheel`）与
+# `bin/lib/common.sh`（`win_to_wsl_path`）/ `bin/relpack.ps1`（`ConvertTo-WslPath`）
+# 承载，故改为「实现静态核对 + 规则镜像」的等价断言。
+#
+# 两产品共用同一 wheel 谱系（WHEEL_PREFIX=xmnn-），但判据仍逐产品取
+# product.env 值——上游若为某产品换 wheel 前缀，这两组用例自动跟随。
+
+
+def _wheel_version(name: str, prefix: str) -> str:
+    """与 `pipeline.sh::wheel_version` 同语义：去前缀 → 去 .whl → `-cp` 前截断。"""
+    v = name.split("/")[-1]
+    if v.startswith(prefix):
+        v = v[len(prefix):]
+    if v.endswith(".whl"):
+        v = v[:-4]
+    return v.split("-cp", 1)[0]
+
+
+def test_wheel_version_parse_rule_matches_wheel_filename(app_root, any_product):
+    pipeline = (app_root / "bin" / "lib" / "pipeline.sh").read_text(encoding="utf-8")
+    prefix = any_product.env["WHEEL_PREFIX"]
+    # 实现侧三步规则
+    assert 'v="${v#"$WHEEL_PREFIX"}"' in pipeline       # 去产品前缀
+    assert 'v="${v%.whl}"' in pipeline                  # 去扩展名
+    assert "${v%%-cp*}" in pipeline                     # 在 -cp 之前截断
+    # 规则镜像：与 pipeline.sh 同语义（原 resolve_wheel 的 version 判据）
+    assert _wheel_version(f"{prefix}9.9.9-cp314-cp314-linux_x86_64.whl", prefix) == "9.9.9"
+    assert _wheel_version(f"{prefix}1.2.1.dev0-cp314-cp314-linux_x86_64.whl", prefix) == "1.2.1.dev0"
+
+
+def test_wheel_staging_rejects_missing_and_foreign_wheels(app_root, any_product):
+    pipeline = (app_root / "bin" / "lib" / "pipeline.sh").read_text(encoding="utf-8")
+    prefix = any_product.env["WHEEL_PREFIX"]
+    glob = any_product.env["WHEEL_GLOB"]
+    # 显式 --wheel 不存在 → fail-fast（原 resolve_wheel 的 FileNotFoundError 判据）
+    assert 'die "--wheel 指定的文件不存在：$src"' in pipeline
+    # 非本产品 wheel → fail-fast（按 WHEEL_PREFIX 校验文件名）
+    assert '"$WHEEL_PREFIX"*.whl)' in pipeline
+    # 暂存区与来源目录皆空 → fail-fast 并给出上游指引
+    assert "未找到 $PRODUCT wheel" in pipeline
+    # 暂存区只留一个 whl（COPY glob 才确定）：先清空旧 whl 再拷贝
+    assert 'for old in "$WHEEL_STAGE"/$WHEEL_GLOB; do' in pipeline
+    assert 'rm -f "$old"' in pipeline
+    assert prefix and glob == f"{prefix}*.whl"
+
+
+def test_win_to_wsl_path_rule_parity(app_root):
+    # 原 `to_wsl_path(Path("D:/a/b")) == "/mnt/d/a/b"` 判据：Windows 盘符路径 →
+    # WSL drvfs 形式。bash 与 pwsh 两侧各有一份实现，语义必须一致。
+    # （bin/ 厂商侧实现，与产品无关，单跑一次。）
+    common = (app_root / "bin" / "lib" / "common.sh").read_text(encoding="utf-8")
+    ps1 = (app_root / "bin" / "relpack.ps1").read_text(encoding="utf-8")
+    assert "win_to_wsl_path" in common
+    assert r"[A-Za-z]:[\\/]*" in common            # 盘符路径识别
+    assert "tr '[:upper:]' '[:lower:]'" in common  # 盘符转小写
+    assert "/mnt/%s%s" in common                   # drvfs 挂载点形式
+    assert "ConvertTo-WslPath" in ps1
+    assert "^[A-Za-z]:" in ps1                     # 盘符路径识别
+    assert '"/mnt/$drive"' in ps1                  # drvfs 挂载点形式
+    # 已经是 POSIX 路径时原样返回（两侧同判定）
+    assert "*) printf '%s' \"$p\" ;;" in common
+    assert "return $full" in ps1
+
+
+# ══ 产品私有契约层（PRODUCT_CONTRACTS 驱动；未登记产品显式 skip）════════════
+
+
+def test_main_compose_contract(any_product):
+    c = _contract(any_product)
+    p = any_product.release_dir / "compose.yaml"
+    lines = _load(p)
+    assert _map(lines)["name"] == c["compose_project_name"]
+    svc = _map(_block(lines, _find(lines, c["svc_key"], 2)))
+    # localhost/ 规范名：podman 打包时裸名归一化进入归档，docker load 原样保留；
+    # 裸名在 docker 下会被解析为 docker.io/<名> 触发远程拉取。离线禁止拉取。
+    assert svc["image"] == c["image_ref"]
+    assert svc["pull_policy"] == "never"
+    assert svc["network_mode"] == c["network_mode"]
+    # 端口面：None = 该产品不暴露宿主端口（ports 键不得出现）
+    if c["ports"] is None:
+        assert "ports" not in svc, f"{any_product.name} 无端口面，ports 键不得回归"
+    else:
+        assert _seq(_block(lines, _find(lines, "ports", 4))) == c["ports"]
+    # 凭证注入面：两产品统一不使用 env_file；有凭证面的产品仅精确四变量注入容器
+    assert "env_file" not in svc
+    if c["environment_keys"] is None:
+        assert "environment" not in svc, \
+            f"{any_product.name} 无凭证注入面，environment 键不得出现"
+    else:
+        assert set(_map(_block(lines, _find(lines, "environment", 4)))) == c["environment_keys"]
+    # 数据面：bind 挂载目标序列（精确）
+    targets = [v.split(":")[1] for v in _seq(_block(lines, _find(lines, "volumes", 4)))]
+    assert targets == c["volume_targets"]
+    assert svc["restart"] == c["restart"]
+    # named volumes：None = 顶层 volumes 键必须缺失（无私有持久化面）
+    if c["named_volumes"] is None:
+        assert _find_opt(lines, "volumes", 0) is None
+    else:
+        named = _map(_block(lines, _find(lines, "volumes", 0)))
+        assert set(named) == c["named_volumes"]
+        assert all(v == "{}" for v in named.values())
+    if c["keepalive_command"] is not None:
+        assert c["keepalive_command"] in p.read_text(encoding="utf-8"), \
+            "一次性 CLI 底座必须以 compose 层保活命令承载 up 常驻语义"
+
+
+def test_podman_override_rootless_essentials(any_product):
+    c = _contract(any_product)
+    p = any_product.release_dir / "compose.podman.yaml"
+    text = p.read_text(encoding="utf-8")
+    lines = _load(p)
+    svc = _map(_block(lines, _find(lines, c["svc_key"], 2)))
+    assert _seq(_block(lines, _find(lines, "devices", 4))) == ["/dev/fuse:/dev/fuse"]
+    assert _seq(_block(lines, _find(lines, "security_opt", 4))) == ["label=disable"]
+    assert svc["cgroupns"] == "host"
+    assert "privileged" not in svc
+    # 「严禁 privileged」在文件注释里出现，故按 YAML 键判据而非子串判据
+    assert not re.search(r"(?m)^\s*privileged\s*:", text)
+
+
+def test_env_example_exact_keys(any_product):
+    c = _contract(any_product)
+    assert _env_example_keys(any_product.release_dir) == c["env_example_keys"]
+
+
+@pytest.mark.parametrize("script", ["xmnnctl", "xmnnctl.ps1"])
+def test_ctl_scripts_command_parity_and_security(any_product, script):
+    c = _contract(any_product)
+    text = (any_product.release_dir / script).read_text(encoding="utf-8")
+    for cmd in ("init", "load", "up", "down", "ps", "logs", "smoke"):
+        assert cmd in text, (script, cmd)
+    # smoke 一次性容器必须显式 --entrypoint（否则默认 entrypoint 命令模式失败）
+    assert c["smoke_entrypoint"] in text
+    # 凭证字符集面：有凭证生成的产品仅字母数字（bash 区间 / pwsh 显式字符集）；
+    # 无凭证面的产品这两段字符集定义整体不得存在（防「悄悄加凭证注入面」）。
+    if c["credential_surface"]:
+        if script == "xmnnctl":
+            assert "A-Za-z0-9" in text
+        else:
+            assert _ALNUM_CHARSET in text
+    else:
+        if script == "xmnnctl":
+            assert "A-Za-z0-9" not in text
+        else:
+            assert _ALNUM_CHARSET not in text
+
+
+def test_pwsh_env_writer_forces_lf(any_product):
+    c = _contract(any_product)
+    pwsh = (any_product.release_dir / "xmnnctl.ps1").read_text(encoding="utf-8")
+    if c["env_writer_lf"]:
+        # pwsh 写 .env 强制 LF（WriteAllText + LF join），不得回退到平台默认行尾
+        assert "WriteAllText" in pwsh and '"`n"' in pwsh
+    else:
+        # 无 init 写 .env 凭证面的产品：写侧设施必须整体缺席
+        assert "WriteAllText" not in pwsh
+
+
+def test_credential_random_source(any_product):
+    c = _contract(any_product)
+    bash = (any_product.release_dir / "xmnnctl").read_text(encoding="utf-8")
+    pwsh = (any_product.release_dir / "xmnnctl.ps1").read_text(encoding="utf-8")
+    if c["credential_surface"]:
+        assert "/dev/urandom" in bash
+        assert "RandomNumberGenerator" in pwsh
+        assert "Get-Random" not in pwsh
+    else:
+        # 无凭证面：加密学随机源与 Jupyter 令牌键三者整体缺席
+        assert "/dev/urandom" not in bash
+        assert "RandomNumberGenerator" not in pwsh
+        assert "JUPYTER_TOKEN" not in bash and "JUPYTER_TOKEN" not in pwsh
+
+
+@pytest.mark.parametrize("script", ["xmnnctl", "xmnnctl.ps1"])
+def test_up_preflights_host_ports_before_compose(any_product, script):
+    c = _contract(any_product)
+    text = (any_product.release_dir / script).read_text(encoding="utf-8")
+    if not c["port_preflight"]:
+        # 无宿主端口面的产品：预检设施必须整体缺席（有端口预检才有占位判定）
+        if script == "xmnnctl":
+            assert "preflight_ports" not in text
+        else:
+            assert "Assert-HostPorts" not in text
+        return
+    # 背景：两引擎共享宿主网络命名空间却互不可见对方的端口占用；rootless 的转发
+    # 表现为宿主用户进程（rootlessport）。不预检时 compose up 在绑定阶段才报
+    # "bind: address already in use"，且不指认占用者。预检必须：
+    #   1) 直接探测宿主网络栈（不能只查当前引擎 ps）；
+    #   2) 本引擎同名容器自持有端口时豁免（幂等 up / 改配置重建）；
+    #   3) 被占时给出对侧 down 指引与"并存需端口+容器名+workspace 三隔离"指引。
+    if script == "xmnnctl":
+        body = text.split("do_up() {", 1)[1].split("\n}", 1)[0]
+        assert body.index("preflight_ports") < body.index("compose up -d")
+        assert "port_holder" in text and "self_publishes_port" in text
+    else:
+        body = text.split("function Do-Up {", 1)[1].split("\n}", 1)[0]
+        assert body.index("Assert-HostPorts") < body.index('Invoke-Compose "up -d"')
+        assert "Test-HostPortListening" in text and "Test-SelfPublishesPort" in text
+    # 可操作指引三件套：对侧运行时 down、并存改容器名、workspace 不可共享
+    assert "另一运行时" in text
+    assert "XMNN_CONTAINER_NAME" in text
+    assert "workspace" in text
 
 
 def _closed_local_port() -> int:
@@ -624,6 +855,12 @@ def _listening_local_port() -> tuple:
     port = sock.getsockname()[1]
     sock.listen(1)
     return sock, port
+
+
+def _require_port_preflight(product) -> None:
+    c = _contract(product)
+    if not c["port_preflight"]:
+        pytest.skip(f"{product.name} 无宿主端口面（port_preflight=False，显式 skip）")
 
 
 def _pwsh_port_harness(release_dir: Path, tmp_path: Path, ssh_port: str,
@@ -644,21 +881,23 @@ Write-Host "PORT_PREFLIGHT_DONE"
 
 
 @_no_pwsh
-def test_pwsh_port_preflight_free_passes(release_dir, tmp_path):
+def test_pwsh_port_preflight_free_passes(any_product, tmp_path):
     # 关闭后的临时端口：本机连接立即被拒（避免依赖固定端口空闲）
+    _require_port_preflight(any_product)
     proc = _pwsh_port_harness(
-        release_dir, tmp_path, str(_closed_local_port()), self_holds=False,
+        any_product.release_dir, tmp_path, str(_closed_local_port()), self_holds=False,
         jupyter_port=str(_closed_local_port()))
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "PORT_PREFLIGHT_DONE" in proc.stdout
 
 
 @_no_pwsh
-def test_pwsh_port_preflight_foreign_holder_fails_fast(release_dir, tmp_path):
+def test_pwsh_port_preflight_foreign_holder_fails_fast(any_product, tmp_path):
+    _require_port_preflight(any_product)
     sock, port = _listening_local_port()
     try:
         proc = _pwsh_port_harness(
-            release_dir, tmp_path, str(port), self_holds=False,
+            any_product.release_dir, tmp_path, str(port), self_holds=False,
             jupyter_port=str(_closed_local_port()))
     finally:
         sock.close()
@@ -670,11 +909,12 @@ def test_pwsh_port_preflight_foreign_holder_fails_fast(release_dir, tmp_path):
 
 
 @_no_pwsh
-def test_pwsh_port_preflight_self_holder_warns_and_passes(release_dir, tmp_path):
+def test_pwsh_port_preflight_self_holder_warns_and_passes(any_product, tmp_path):
+    _require_port_preflight(any_product)
     sock, port = _listening_local_port()
     try:
         proc = _pwsh_port_harness(
-            release_dir, tmp_path, str(port), self_holds=True,
+            any_product.release_dir, tmp_path, str(port), self_holds=True,
             jupyter_port=str(_closed_local_port()))
     finally:
         sock.close()
@@ -683,66 +923,21 @@ def test_pwsh_port_preflight_self_holder_warns_and_passes(release_dir, tmp_path)
     assert "PORT_PREFLIGHT_DONE" in proc.stdout
 
 
-# ── 原 relpack 纯函数用例的等价静态替代 ─────────────────────────────────────
-#
-# 原文件末尾三个用例（`test_resolve_wheel_from_fake_dir` /
-# `test_resolve_wheel_missing_raises` / `test_to_wsl_path`）依赖
-# `jpman_client.relpack`——该模块随 client 侧移除（Task 6）不复存在；其语义
-# 现由 `bin/lib/pipeline.sh`（`wheel_version` / `stage_wheel`）与
-# `bin/lib/common.sh`（`win_to_wsl_path`）/ `bin/relpack.ps1`（`ConvertTo-WslPath`）
-# 承载，故改为「实现静态核对 + 规则镜像」的等价断言。
-
-
-def _wheel_version(name: str, prefix: str) -> str:
-    """与 `pipeline.sh::wheel_version` 同语义：去前缀 → 去 .whl → `-cp` 前截断。"""
-    v = name.split("/")[-1]
-    if v.startswith(prefix):
-        v = v[len(prefix):]
-    if v.endswith(".whl"):
-        v = v[:-4]
-    return v.split("-cp", 1)[0]
-
-
-def test_wheel_version_parse_rule_matches_wheel_filename(app_root, product_env):
-    pipeline = (app_root / "bin" / "lib" / "pipeline.sh").read_text(encoding="utf-8")
-    prefix = product_env["WHEEL_PREFIX"]
-    # 实现侧三步规则
-    assert 'v="${v#"$WHEEL_PREFIX"}"' in pipeline       # 去产品前缀
-    assert 'v="${v%.whl}"' in pipeline                  # 去扩展名
-    assert "${v%%-cp*}" in pipeline                     # 在 -cp 之前截断
-    # 规则镜像：与 pipeline.sh 同语义（原 resolve_wheel 的 version 判据）
-    assert _wheel_version(f"{prefix}9.9.9-cp314-cp314-linux_x86_64.whl", prefix) == "9.9.9"
-    assert _wheel_version(f"{prefix}1.2.1.dev0-cp314-cp314-linux_x86_64.whl", prefix) == "1.2.1.dev0"
-
-
-def test_wheel_staging_rejects_missing_and_foreign_wheels(app_root, product_env):
-    pipeline = (app_root / "bin" / "lib" / "pipeline.sh").read_text(encoding="utf-8")
-    prefix = product_env["WHEEL_PREFIX"]
-    glob = product_env["WHEEL_GLOB"]
-    # 显式 --wheel 不存在 → fail-fast（原 resolve_wheel 的 FileNotFoundError 判据）
-    assert 'die "--wheel 指定的文件不存在：$src"' in pipeline
-    # 非本产品 wheel → fail-fast（按 WHEEL_PREFIX 校验文件名）
-    assert '"$WHEEL_PREFIX"*.whl)' in pipeline
-    # 暂存区与来源目录皆空 → fail-fast 并给出上游指引
-    assert "未找到 $PRODUCT wheel" in pipeline
-    # 暂存区只留一个 whl（COPY glob 才确定）：先清空旧 whl 再拷贝
-    assert 'for old in "$WHEEL_STAGE"/$WHEEL_GLOB; do' in pipeline
-    assert 'rm -f "$old"' in pipeline
-    assert prefix and glob == f"{prefix}*.whl"
-
-
-def test_win_to_wsl_path_rule_parity(app_root):
-    # 原 `to_wsl_path(Path("D:/a/b")) == "/mnt/d/a/b"` 判据：Windows 盘符路径 →
-    # WSL drvfs 形式。bash 与 pwsh 两侧各有一份实现，语义必须一致。
-    common = (app_root / "bin" / "lib" / "common.sh").read_text(encoding="utf-8")
-    ps1 = (app_root / "bin" / "relpack.ps1").read_text(encoding="utf-8")
-    assert "win_to_wsl_path" in common
-    assert r"[A-Za-z]:[\\/]*" in common            # 盘符路径识别
-    assert "tr '[:upper:]' '[:lower:]'" in common  # 盘符转小写
-    assert "/mnt/%s%s" in common                   # drvfs 挂载点形式
-    assert "ConvertTo-WslPath" in ps1
-    assert "^[A-Za-z]:" in ps1                     # 盘符路径识别
-    assert '"/mnt/$drive"' in ps1                  # drvfs 挂载点形式
-    # 已经是 POSIX 路径时原样返回（两侧同判定）
-    assert "*) printf '%s' \"$p\" ;;" in common
-    assert "return $full" in ps1
+def test_payload_dockerfile_derivation_contract(any_product):
+    c = _contract(any_product)
+    # 底座/载荷分离的派生契约细节逐产品登记（守卫脚本落点与运行用户属产品专属）；
+    # 「不覆盖 ENTRYPOINT/CMD」属跨产品不变量，见 test_payload_dockerfile_keeps_base_entrypoint。
+    text = (any_product.release_dir / "payload" / "Dockerfile").read_text(encoding="utf-8")
+    assert "FROM ${BASE_IMAGE}" in text, "派生镜像必须基于随交付包下发的底座 ref"
+    assert c["payload_copy_glob"] in text
+    # ① 完全离线：禁网 + 跳过依赖解析（依赖面已由底座铺满，缺失即底座漏项）
+    assert "--no-index" in text and "--no-deps" in text
+    # ② 载荷守卫 root + 普通用户双身份各跑一次（任一失败即构建失败）
+    assert c["payload_smoke_path"] in text
+    assert text.count("_runtime_smoke.py") == 2, "守卫须 root 与用户身份各跑一次"
+    assert c["payload_su_line"] in text
+    # ③ 依赖区间校验：pip check 全量打印，仅载荷相关冲突判交付失败
+    assert "-m pip check" in text
+    assert c["payload_pip_check_grep"] in text
+    # ④ LABEL 载荷版本（派生镜像可溯源）
+    assert c["payload_version_label"] in text

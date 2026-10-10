@@ -325,6 +325,10 @@ status: "approved"
     - AC-1 When 口径 `git grep -l -E 'xmflow-release|Containerfile\.release|BUILDER_IMAGE=localhost/native-dev' -- 'apps'` → 命中仅 `apps/containers/offline-delivery/.agents/CHANGELOG.md`（1 文件，落在 `offline-delivery/` 内；其中 `Containerfile.release`/`localhost/xmflow-release:1.2.1` 系 Task 11 新条目「背景与动机（I）」块 L92 对 2026-10-09 收编来源的历史性陈述，属「历史条目除外」范畴，非消费端违例残留）✓
     - 全仓库口径（无 pathspec）→ 命中 3 文件：本 spec 正文 `spec.md`、`tasks.md`（本 spec 正文除外）+ `apps/containers/offline-delivery/.agents/CHANGELOG.md`（历史条目）✓
     - 结论：命中集合只落在 `offline-delivery/`（历史条目与本 spec 正文除外），client 侧零命中 ✓
+- **SMB 缺失处置核实（2026-10-10，待定项关闭）**：`assets/` 目录在 SMB 与 git 均无记录（`git log --all -- <assets 路径>` 空、`git ls-files` 无登记、`git stash list` 空），核实为 **FR-12 设计内删除，非数据丢失**，无需恢复文件：
+  - **内容承继复核**：`USAGE.zh-CN.md` 7 节去向即 TR-12.1 对照表（L295-303）；本次对 `products/xmflow-cli/release/README.md` 逐行复核，FR-8 三条必留排障口径均在——`--network host`（README L240/241/263/396）、`chmod 0777 temp` 与 `--user "$(id -u):$(id -g)"` 规避 uid（L310/318/393）、`0x7F7F` 毒值判读（L395）；README 为 11 节融合版（L1-427，§1-§11 齐全），7 节信息逐节有落点。
+  - **勘误事实登记**：spec.md L44「三份原件均已入库跟踪」与 git 事实不符——assets/ 三文件实际从未入库（2026-10-09 临时留档，删除后无 git 记录，见本 Task 实施记录 L323 取证）。spec 为已批准历史裁定文档，正文不回改，勘误事实在此登记。
+  - **AC-5 Evidence 落点**：spec L184「与 `assets/USAGE.zh-CN.md`（实现删除留档前）逐节对照表」的实体即 TR-12.1 三文件内容去向对照表（上方 L293-319），指针不悬空。
 
 ## Task 13: 独立 Review
 - **Status**: `pending`

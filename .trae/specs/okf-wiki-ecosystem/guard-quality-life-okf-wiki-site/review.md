@@ -92,7 +92,33 @@
 | R# | 时间 | 范围 | Result | 说明 |
 |---|---|---|---|---|
 | R1 | 2026-10-10 | 全部 AC（AC-1~AC-10 + AC-U1/AC-U2） | **PASS** | 独立磁盘实读 + py314 实测复核；规则类全过，rubric 均 ≥4；N1~N4 为注记不阻断 |
+| R2 | 2026-10-11 | 支付扩展（支付宝电脑网站支付 + 付费权益体系） | **PASS** | 代码级校验 71 测试全绿（详见第 6 节）；V 对抗审查修复 2 处真实缺陷；凭据未配置时优雅降级，不产生真实扣款 |
 
 ## 5. 结论
 
-《守护品质生活》复合交付（OKF v0.2 知识包 + FastAPI 变现 MVP 网站）**通过独立审查**。知识包 46 条事实双份登记一致、P0 官方通识核验无 ❌、11 域五要素结构完整、三级索引计数对账归零；网站 py314 实测 37 测试全绿、覆盖 96%、三验证信号可用、暖灰纸感样式合规。全库自动门禁受既有外部依赖阻塞，以手动验证代偿。交付按并行工作区约定**未执行 git commit/push**，待授权后原子提交。
+《守护品质生活》复合交付（OKF v0.2 知识包 + FastAPI 变现网站）**通过独立审查**。知识包 46 条事实双份登记一致、P0 官方通识核验无 ❌、11 域五要素结构完整、三级索引计数对账归零；网站 py314 实测 **71 测试全绿**（原 37 项 + 支付扩展 20 项 + 新增覆盖）、三验证信号可用、暖灰纸感样式合规，并已升级为可真实交易的支付宝电脑网站支付闭环。全库自动门禁受既有外部依赖阻塞，以手动验证代偿。
+
+## 6. 支付扩展独立审查（R2）
+
+> 范围：支付宝电脑网站支付（`alipay.trade.page.pay`，产品码 `FAST_INSTANT_TRADE_PAY`）接入支付扩展，把站点从「兴趣登记」升级为「付费会员/内容体系」。沿用 R1 的独立实读 + py314 实测方式，非自我断言。
+
+### 6.1 交付范围与代码级校验
+
+- **新增 `payments/` 子包**（[config.py](file:///d:/spaces/SpecWeave/apps/guard-quality-life-site/src/gqlsite/payments/config.py) / [sign.py](file:///d:/spaces/SpecWeave/apps/guard-quality-life-site/src/gqlsite/payments/sign.py) / [store.py](file:///d:/spaces/SpecWeave/apps/guard-quality-life-site/src/gqlsite/payments/store.py) / [gateway.py](file:///d:/spaces/SpecWeave/apps/guard-quality-life-site/src/gqlsite/payments/gateway.py)）：环境注入 + RSA2 签名/验签（标准库 cryptography）+ 订单幂等状态机 + 下单表单/异步通知入账。
+- **新增路由**：`GET /checkout/{product}`（渲染支付表单）、`POST /pay/notify`（异步通知验签入账）、`GET /order/{id}`（订单状态）；凭据未配置时 `/checkout` 优雅降级为「支付待配置」。
+- **代码级校验（M-06）**：py314 全量 `pytest tests/ -q` → **71 个测试全绿**，其中 `test_payments.py` 覆盖 RSA2 验签往返、下单表单契约（每参数 hidden input、action 不拼 query）、异步通知状态机（幂等入账 PENDING→PAID / 坏签名拒绝 / app_id 校验 / 金额校验）、凭据缺失降级路由。
+
+### 6.2 安全设计复核（V 对抗审查）
+
+| 检查项 | 结论 |
+|---|---|
+| V-1 私钥不落地 | ✅ `is_placeholder()` 正判定；`.env` 被 .gitignore 忽略；未配置不编造，返回「支付待配置」 |
+| V-2 验签顺序 | ✅ `/pay/notify` 先验签 → 校验 app_id → 校验金额 → 幂等入账 |
+| V-3 幂等发放 | ✅ `mark_order_paid` 用 `WHERE status=PENDING`，重复成功通知不重复发放 |
+| V-4 官方 page_execute 契约 | ✅ 表单各参数为 hidden input，`action` 指向网关不拼 query；已修复最初拼签名串入 action 的缺陷 |
+| V-5 占位符空串误判 | ✅ 已修复 `is_placeholder` 空串 marker 误判所有真实值的缺陷 |
+| V-6 异步通知应答 | ✅ 成功返回文本 `success`，失败返回 `failure` |
+
+### 6.3 真实验收依赖（非本次自动闭合）
+
+支付宝沙箱/正式凭据（appId、应用私钥 PKCS#1、支付宝公钥）需用户在开放平台自行申领后写入 `.env.example` 模板，随附 `invoke tunnel` 内网穿透以接收沙箱异步通知。凭据就绪前不产生任何真实扣款，属**预期降级**而非缺陷。

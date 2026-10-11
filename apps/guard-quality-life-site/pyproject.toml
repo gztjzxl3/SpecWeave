@@ -14,6 +14,8 @@ dependencies = [
     "jinja2>=3.1",
     "httpx>=0.27",
     "python-multipart>=0.0.9",
+    # 支付宝 RSA2 签名/验签（无需官方 SDK，标准库 cryptography 即可）
+    "cryptography>=42.0",
 ]
 
 [project.optional-dependencies]

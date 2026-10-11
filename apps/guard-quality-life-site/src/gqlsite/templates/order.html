@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}订单 {{ order.out_trade_no }} · 守护品质生活{% endblock %}
+{% block content %}
+<div class="crumb"><a href="/">知识树</a> › 订单 {{ order.out_trade_no }}</div>
+
+<article class="card article">
+  <h1>订单详情</h1>
+  <dl>
+    <dt>商品</dt>
+    <dd>{{ order.subject }}</dd>
+    <dt>金额</dt>
+    <dd>￥{{ order.amount }}</dd>
+    <dt>商户订单号</dt>
+    <dd class="small">{{ order.out_trade_no }}</dd>
+    <dt>支付状态</dt>
+    <dd>
+      {% if order.status == "PAID" %}
+        <span class="badge badge-ev-a">已支付</span>
+        <p class="muted">付款已确认，权益已发放。感谢支持！</p>
+      {% elif order.status == "PENDING" %}
+        <span class="badge badge-ev-b">待支付</span>
+        <p class="muted">订单待完成付款。若已跳转收银台还未返回，请等待异步通知确认。</p>
+      {% elif order.status == "CLOSED" %}
+        <span class="badge">已关闭</span>
+        <p class="muted">订单已关闭（超时或取消）。可重新下单。</p>
+      {% else %}
+        <span class="badge">{{ order.status }}</span>
+      {% endif %}
+    </dd>
+    {% if order.trade_no %}
+    <dt>支付宝交易号</dt>
+    <dd class="small">{{ order.trade_no }}</dd>
+    {% endif %}
+    <dt>创建时间</dt>
+    <dd class="small">{{ order.created_at }}</dd>
+  </dl>
+
+  <p><a class="btn" href="/">返回知识树</a></p>
+
+  {% if order.status == "PENDING" %}
+  <form method="post" action="/checkout/{{ order.product_code }}">
+    <button type="submit" class="btn">重新付款 ￥{{ order.amount }}</button>
+  </form>
+  {% endif %}
+</article>
+{% endblock %}

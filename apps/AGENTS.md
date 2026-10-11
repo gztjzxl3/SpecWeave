@@ -71,6 +71,7 @@ apps/AGENTS.md 由 SpecWeave 主权区维护，直接纳入版本管理；部分
 | samples/ | serial-camera-controller | —（遵循根规范） | ❌ 无 | 串口控制USB摄像头抓图/录像（CH340+OpenCV+pyserial，双协议三线程架构） |
 | 根级 | inurl-byok-token-hub | —（遵循根规范） | ❌ 无 | BYOK 统一令牌枢纽复刻（源：`projects/awesome-okf-xs/doc/bundles/jishu/ai/products/inurl-byok-token-hub`）：E2EE 密钥保险库（PBKDF2+AES-GCM 双 escrow）+ 逻辑别名路由（19 策略 + `>` Combo）+ 5 档上下文压缩 + 三协议本地代理（OpenAI 兼容 / Anthropic / Gemini）+ 健康熔断与用量计费；仅监听 127.0.0.1，scikit-build-core 纯 Python 包，`inurl-byok-token-hub` CLI，规格 `.trae/specs/inurl-byok-token-hub/` |
 | 根级 | travel-planner | —（遵循根规范） | ❌ 无 | 旅行规划工作台（本地 FastAPI Web：多行程管理 + 每日编排（六类条目/时间/费用/勾选）+ 预算分类汇总 + 打包清单 + JSON 导入导出 + BYOK AI 行程草稿（OpenAI 兼容端点，白名单 schema 校验 + 预览确认导入）；零数据库、仅监听 127.0.0.1，CSRF + Origin 校验 + 单实例文件锁，原子写 + 滚动备份，运行时数据落 playground/travel-planner/data/；scikit-build-core 纯 Python 包，`travel-planner` CLI，规格 `.trae/specs/travel-planner/`） |
+| 根级 | guard-quality-life-site | —（遵循根规范） | ❌ 无 | 《守护品质生活》生活方式方案库可变现 MVP 网站（Python 3.14+ / FastAPI 动态 Web：11 域知识树按域浏览/搜索 + 订阅兴趣登记 + 推荐位占位 + 访问埋点三验证信号；暖灰纸感 UI；scikit-build-core 纯 Python 包 `gqlsite`，pytest 37 用例全绿/覆盖 96%；知识本源 `projects/awesome-okf-xs/doc/bundles/sheke/personal-growth/guard-quality-life/`，规格 `.trae/specs/okf-wiki-ecosystem/guard-quality-life-okf-wiki-site/`） |
 | 根级 | shared | —（遵循根规范） | ❌ 无 | 跨应用共享资源目录 |
 | 根级 | tests | —（遵循根规范） | ❌ 无 | 测试用例目录 |
 

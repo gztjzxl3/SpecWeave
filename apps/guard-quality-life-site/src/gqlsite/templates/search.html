@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}搜索 · 守护品质生活{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>搜索</h1>
+  <p class="lede">{% if query %}「{{ query }}」共命中 {{ result_count }} 条{% else %}输入关键词检索知识树条目{% endif %}</p>
+</section>
+
+{% if results %}
+<section class="entry-list">
+  {% for d, e in results %}
+  <a class="card entry-card" href="/entry/{{ d.id }}/{{ e.id }}">
+    <div class="entry-head">
+      <span class="entry-title">{{ e.title }}</span>
+      <span class="badge badge-info">{{ d.name }}</span>
+    </div>
+    <p class="entry-purpose">{{ e.purpose }}</p>
+  </a>
+  {% endfor %}
+</section>
+{% elif query %}
+<p class="muted small">没有找到与「{{ query }}」相关的条目，换个关键词试试。</p>
+{% endif %}
+{% endblock %}

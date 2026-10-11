@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}守护品质生活{% endblock %}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">守护品质生活</a>
+  <nav class="nav">
+    <a href="/">知识树</a>
+    <a href="/subscribe">订阅</a>
+  </nav>
+  <form class="search" action="/search" method="get">
+    <input type="text" name="q" placeholder="搜索条目…" value="{% if query is defined %}{{ query }}{% endif %}">
+    <button type="submit" class="secondary">搜索</button>
+  </form>
+</header>
+<main class="grid-wrap">
+  {% block content %}{% endblock %}
+</main>
+<aside class="slot">
+  <h3>{{ slot.title }}</h3>
+  <p>{{ slot.note }}</p>
+</aside>
+<footer class="foot">
+  守护品质生活 · 与知识包 concepts 同源 · 仅本地动态站点（v{{ version }}）
+</footer>
+</body>
+</html>

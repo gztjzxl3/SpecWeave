@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}守护品质生活 · 知识树{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>守护品质生活</h1>
+  <p class="lede">把值得坚持的日常，整理成一张可以按域浏览的<b>品质生活知识树</b>。</p>
+  <p class="muted small">共 {{ total_domains }} 个生活域 · {{ total_entries }} 条可执行条目</p>
+</section>
+
+<section class="domain-grid">
+  {% for d in domains %}
+  <a class="card domain-card" href="/domain/{{ d.id }}">
+    <div class="domain-head">
+      <span class="domain-name">{{ d.name }}</span>
+      <span class="badge badge-info">{{ d.entries|length }} 条</span>
+    </div>
+    <p class="domain-summary">{{ d.summary }}</p>
+    <ul class="mini-list">
+      {% for e in d.entries %}
+      <li>{{ e.title }}</li>
+      {% endfor %}
+    </ul>
+  </a>
+  {% endfor %}
+</section>
+{% endblock %}

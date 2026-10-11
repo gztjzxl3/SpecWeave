@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ domain.name }} · 守护品质生活{% endblock %}
+{% block content %}
+<div class="crumb"><a href="/">知识树</a> › {{ domain.name }}</div>
+
+<section class="hero">
+  <h1>{{ domain.name }}</h1>
+  <p class="lede">{{ domain.summary }}</p>
+</section>
+
+<section class="entry-list">
+  {% for e in domain.entries %}
+  <a class="card entry-card" href="/entry/{{ domain.id }}/{{ e.id }}">
+    <div class="entry-head">
+      <span class="entry-title">{{ e.title }}</span>
+      <span class="badge badge-ev-{{ e.evidence_level|lower }}">证据 {{ e.evidence_level }}</span>
+    </div>
+    <p class="entry-purpose">{{ e.purpose }}</p>
+    <p class="muted small">共 {{ e.steps|length }} 步 · {{ e.cost_benefit|truncate(42) }}</p>
+  </a>
+  {% endfor %}
+</section>
+{% endblock %}

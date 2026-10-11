@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.title }} · 守护品质生活{% endblock %}
+{% block content %}
+<div class="crumb"><a href="/">知识树</a> › <a href="/domain/{{ domain.id }}">{{ domain.name }}</a> › {{ entry.title }}</div>
+
+<article class="card article">
+  <h1>{{ entry.title }}</h1>
+  <p class="muted">所属域：<a href="/domain/{{ domain.id }}">{{ domain.name }}</a></p>
+
+  <section class="five-factors">
+    <h2>目的</h2>
+    <p>{{ entry.purpose }}</p>
+
+    <h2>可执行步骤</h2>
+    <ol class="steps">
+      {% for s in entry.steps %}
+      <li>{{ s }}</li>
+      {% endfor %}
+    </ol>
+
+    <h2>成本收益</h2>
+    <p>{{ entry.cost_benefit }}</p>
+
+    <h2>证据等级</h2>
+    <p>
+      <span class="badge badge-ev-{{ entry.evidence_level|lower }}">证据 {{ entry.evidence_level }}</span>
+      <span class="ev-source">{{ entry.evidence_source }}</span>
+    </p>
+
+    <h2>禁忌 / 边界</h2>
+    <p class="caveat">{{ entry.caveat }}</p>
+  </section>
+</article>
+{% endblock %}

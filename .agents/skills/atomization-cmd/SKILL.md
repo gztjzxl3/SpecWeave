@@ -59,6 +59,10 @@ x-toml-ref: "../../../.meta/toml/.agents/skills/atomization-cmd/SKILL.toml"
 └─ Git提交原子化结果？ → 拆分完成后使用 atomic-commit-cmd
 ```
 
+> **子模块边界**：拆分对象在 `projects/<submodule>/` 内时，主仓 finalize-atomization.py
+> 不覆盖该目录，收尾改用 [submodule-atomization-finalize-cmd](../submodule-atomization-finalize-cmd/SKILL.md)
+> （GitHub slug 门禁 + git HEAD 事实守恒 SOP）；`vendor/` 只读，禁止修改。
+
 ### ⚠️ 强制：触发时记录输入参数日志
 
 决策前输出CMD_START日志（session前缀 `atom-YYYYMMDD-<topic>`）：

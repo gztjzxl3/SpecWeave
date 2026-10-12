@@ -61,6 +61,10 @@ x-toml-ref: "../../../.meta/toml/.agents/skills/atomization-finalize-cmd/SKILL.t
 └─ 只是单个Spec目录的变更，不需要全项目扫描？ → --target <目录> 指定目标
 ```
 
+> **子模块边界**：待收尾文档在 `projects/<submodule>/` 内时，本脚本（主仓 check-links/
+> docgen/看板设施）作用域不覆盖，改用 [submodule-atomization-finalize-cmd](../submodule-atomization-finalize-cmd/SKILL.md)；
+> `vendor/` 第三方只读子模块禁止修改。
+
 ### ⚠️ 强制：触发时记录输入参数日志
 
 决策前输出CMD_START日志（session前缀 `fin-YYYYMMDD-<topic>`）：

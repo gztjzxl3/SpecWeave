@@ -354,10 +354,6 @@ def format_preflight(report: PreflightReport) -> str:
     return "\n".join(lines)
 
 
-# CLI handler（cmd_preflight）已迁至 okw.commands.podman_cmds；
-# 本模块底部 PEP 562 __getattr__ 保留 podman.cmd_preflight 旧路径别名。
-
-
 # ----------------- 安装 -----------------
 
 YES_SIDEEFFECTS_LINES = (
@@ -874,10 +870,6 @@ def format_install(report: InstallReport) -> str:
     return "\n".join(lines)
 
 
-# CLI handler（cmd_install）已迁至 okw.commands.podman_cmds；
-# 本模块底部 PEP 562 __getattr__ 保留 podman.cmd_install 旧路径别名。
-
-
 # ----------------- 验收（只读；冒烟仅用本地镜像，禁止拉取） -----------------
 
 # 冒烟容器固定的禁拉取语义与最小探针（要求镜像内存在 /bin/true，常规发行版镜像均满足）
@@ -1087,24 +1079,3 @@ def format_verify(report: VerifyReport) -> str:
         lines.append("  本命令为只读检查，未修改发行版任何配置；")
         lines.append("  容器冒烟也只使用本地镜像并显式禁止拉取（--pull=never）。")
     return "\n".join(lines)
-
-
-# CLI handler（cmd_verify）已迁至 okw.commands.podman_cmds；
-# 下方 PEP 562 __getattr__ 保留 podman.cmd_verify 旧路径别名。
-
-def __getattr__(name):
-    """兼容别名：旧调用路径 podman.cmd_preflight/cmd_install/cmd_verify。
-
-    新代码一律从 ``okw.commands.COMMAND_HANDLERS`` 取 handler；惰性导入
-    commands 包以避免与 commands.podman_cmds（其导入本模块）形成循环。
-    """
-    from okw.commands import podman_cmds
-
-    aliases = {
-        "cmd_preflight": podman_cmds.cmd_preflight,
-        "cmd_install": podman_cmds.cmd_install,
-        "cmd_verify": podman_cmds.cmd_verify,
-    }
-    if name in aliases:
-        return aliases[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1027,7 +1027,7 @@ class TestTR24ThreeAPTErrorLabels:
 # ----------------- CLI Plumbing（--yes 副作用三行 / InstallReport exit 语义）--
 
 class TestInstallPlumbing:
-    """cmd_install 的退出码语义 + 全 PASS 场景 + verify 未实现占位回归。"""
+    """install handler 的退出码语义 + 全 PASS 场景 + verify 未实现占位回归。"""
 
     def test_missing_yes_prints_three_plus_lines_and_exit_2(self, capsys):
         """--yes 拒绝输出必须清晰包含每条副作用，便于肉眼扫描。"""
@@ -1330,7 +1330,7 @@ class TestTR24RepairHints:
 
 
 class TestInstallRunDirect:
-    """install_run 直调分支（CLI 无 --yes 时走 cmd_install 早返回，不经 install_run）。"""
+    """install_run 直调分支（CLI 无 --yes 时 install handler 早返回，不经 install_run）。"""
 
     def test_install_run_without_yes_is_closed(self, fake_run_wsl):
         report = podman.install_run("openKylin-3.0", yes=False)

@@ -302,7 +302,7 @@ class TestPodmanCliPlumbing:
         assert "preflight" in capsys.readouterr().out
 
     def test_install_is_connected_returns_fail_on_missing_distro(self, fake_run_wsl, capsys):
-        """install 子命令已实现，直连 podman.cmd_install；默认 fake 环境发行版不存在 → FAIL exit 1。"""
+        """install 子命令已接线，经 cli.main 走注册表 handler；默认 fake 环境发行版不存在 → FAIL exit 1。"""
         ret = cli.main(["podman", "install", "openKylin-3.0", "--yes"])
         assert ret == 1
         out = capsys.readouterr().out
@@ -310,7 +310,7 @@ class TestPodmanCliPlumbing:
         assert "okw podman install" in out
 
     def test_verify_is_connected_returns_fail_on_missing_distro(self, fake_run_wsl, capsys):
-        """verify 子命令已实现，直连 podman.cmd_verify；默认 fake 环境发行版不存在 → FAIL exit 1。"""
+        """verify 子命令已接线，经 cli.main 走注册表 handler；默认 fake 环境发行版不存在 → FAIL exit 1。"""
         ret = cli.main(["podman", "verify", "openKylin-3.0"])
         assert ret == 1
         out = capsys.readouterr().out
@@ -318,7 +318,7 @@ class TestPodmanCliPlumbing:
         assert "okw podman verify" in out
         assert "尚未实现" not in out
 
-    # — preflight 通过 podman.cmd_preflight 返回，直测 report.exit_code 语义 —
+    # — preflight 经 cli.main 走注册表 handler，此处直测 report.exit_code 语义 —
     def test_report_exit_code_semantics(self):
         r_pass = podman.PreflightReport(distro_name="x")
         r_pass.add("a", "PASS")

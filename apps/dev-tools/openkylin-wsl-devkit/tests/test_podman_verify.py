@@ -324,7 +324,7 @@ class TestTR32SmokeNoPull:
         assert "podman run" not in joined
 
     def test_cli_verify_is_wired_no_placeholder(self, fake_run_wsl, capsys):
-        """占位分支移除后，verify 直连 podman.cmd_verify。"""
+        """占位分支移除后，verify 经 cli.main 走注册表 handler。"""
         _verify_env(fake_run_wsl)
         ret = cli.main(["podman", "verify", "openKylin-3.0"])
         assert ret == 0

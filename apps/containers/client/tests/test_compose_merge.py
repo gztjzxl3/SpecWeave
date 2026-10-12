@@ -79,7 +79,8 @@ GOLDEN = {
         "volume_targets": [
             "/run/user/1000/podman/podman.sock",
             "/workspace", "/workspace/npu_tvm", "/workspace/npuusertools",
-            "/workspace/models", "/workspace/temp", "/root/.ccache",
+            "/workspace/models", "/workspace/projects", "/workspace/temp",
+            "/root/.ccache",
             "/home/devuser/.local/share/jupyter",
             "/var/lib/jpman/ssh-host-keys",
         ],

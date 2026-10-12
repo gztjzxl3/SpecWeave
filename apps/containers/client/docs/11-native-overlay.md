@@ -7,7 +7,8 @@ source: "README.md#13-工作负载叠加层native-devnative-命令opt-in"
 
 第二个声明式工作负载栈：XMNN **源码调试 + wheel 打包**开发环境。容器内具备
 LLVM/Clang 22.1.8 + CMake/Ninja/ccache + Nuitka 4.2.2 工具链；运行时把
-`npu_tvm`、`npuusertools`、`models` 三个宿主源码目录 bind 挂载进容器，
+`npu_tvm`、`npuusertools`、`models` 三个宿主源码目录与仓库根 `projects/`
+（第一方子项目集合）bind 挂载进容器，
 SSH/Jupyter（`Python 3.14 (native dev)` 内核，cp314 GIL）即可直接调试挂载源码，
 并能一键编译 TVM、用 Nuitka 打出 `xmnn-*.whl`（产物落 workspace/dist）。
 
@@ -54,13 +55,14 @@ invoke native.down                       # 停止清理（ccache / Jupyter 登�
   回退「容器层生成 + 重建即轮换」并打 WARN；卷名与落点同客户交付栈
   （`offline-delivery` 应用的交付包 `release/compose.yaml`））。仅 `down --volumes` 与
   上述两卷一并清除（删后指纹轮换属预期）。
-- **源码路径**：默认挂载仓库根 `external/chaos/{npu_tvm,npuusertools,models}`；
-  可在 `.env` 用 `NPU_TVM_PATH` / `NPUUSERTOOLS_PATH` / `MODELS_PATH`
-  覆盖（invoke 路径做存在性硬校验）。TVM 全量编译在 9p 上较慢，可把路径
-  指向 WSL 原生克隆。
+- **源码路径**：默认挂载仓库根 `external/chaos/{npu_tvm,npuusertools,models}` 与
+  仓库根 `projects/`（第一方子项目集合，容器内 `/workspace/projects`）；
+  可在 `.env` 用 `NPU_TVM_PATH` / `NPUUSERTOOLS_PATH` / `MODELS_PATH` /
+  `NATIVE_PROJECTS_PATH` 覆盖（invoke 路径做存在性硬校验）。TVM 全量编译在 9p
+  上较慢，可把路径指向 WSL 原生克隆。
 - **临时目录**：`NATIVE_TEMP_PATH` 默认取仓库根上溯四级 = 根工作区 `.temp`
   （本工作区 `/media/pc/data/ai/.temp`，根 AGENTS.md 定义的统一临时目录），
-  挂容器内 `/workspace/temp`；与源码三类不同，**缺失不做硬校验**而是幂等
+  挂容器内 `/workspace/temp`；与源码四类不同，**缺失不做硬校验**而是幂等
   mkdir。⚠️ 该 bind 覆盖 `/workspace` 下的同名子目录，容器内不再可见宿主
   `client/workspace/temp`（宿主文件不受影响）；换检出位置布局不同时须显式
   指定绝对路径。
@@ -224,7 +226,8 @@ invoke native.logs   # 找「[IMPORTANT] devuser password: ...」与「Token: ..
    三源码树的 `PYTHONPATH`，tvm/vta/xmnn 从挂载源码导入；其余内核不具备
    这条源码调试链路。
 3. 工作根目录即容器内 `/workspace`：源码在 `npu_tvm/`、`npuusertools/`、
-   `models/`，wheel 产物在 `dist/`；宿主侧改代码容器内即时生效，无需重建。
+   `models/`、`projects/`（仓库根第一方子项目），wheel 产物在 `dist/`；
+   宿主侧改代码容器内即时生效，无需重建。
 
 ### SSH
 
@@ -279,7 +282,7 @@ ssh -p 2223 devuser@localhost
 
 ```bash
 whoami                          # 输出 devuser
-ls /workspace                   # 应见 npu_tvm  npuusertools  models  dist
+ls /workspace                   # 应见 npu_tvm  npuusertools  models  projects  dist
 /opt/conda/bin/python -c "import tvm; print(tvm.__file__)"
 # 应输出 /workspace/npu_tvm/python/tvm/... —— 证明走的是挂载源码而非 site-packages
 ```

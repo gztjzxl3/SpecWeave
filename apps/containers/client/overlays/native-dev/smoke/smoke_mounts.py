@@ -5,7 +5,7 @@
   invoke native.smoke
 
 语义：
-  - 始终断言三个 bind 挂载点与关键子目录可访问；
+  - 始终断言四个 bind 挂载点与关键子目录可访问；
   - /workspace/npu_tvm/build/libtvm.so 不存在（首次未编译）时跳过 import
     段并以退出码 0 通过——未编译是合法的首次状态，给出 build-tvm 提示；
   - libtvm.so 存在时导入 tvm/vta/xmnn，断言模块来自 /workspace 挂载源码
@@ -19,6 +19,7 @@ from pathlib import Path
 TVM_ROOT = Path("/workspace/npu_tvm")
 XMN_ROOT = Path("/workspace/npuusertools")
 MODELS_ROOT = Path("/workspace/models")
+PROJECTS_ROOT = Path("/workspace/projects")
 
 failures: list[str] = []
 
@@ -37,6 +38,7 @@ check("npu_tvm/vta/python/vta 包", (TVM_ROOT / "vta" / "python" / "vta" / "__in
 check("npuusertools 根挂载", XMN_ROOT.is_dir())
 check("npuusertools/xmnn 包", (XMN_ROOT / "xmnn" / "__init__.py").is_file())
 check("models 挂载", MODELS_ROOT.is_dir())
+check("projects 根挂载（第一方子项目）", PROJECTS_ROOT.is_dir())
 
 print("\n  PYTHONPATH =", os.environ.get("PYTHONPATH", "<unset>"))
 print("  TVM_LIBRARY_PATH =", os.environ.get("TVM_LIBRARY_PATH", "<unset>"))

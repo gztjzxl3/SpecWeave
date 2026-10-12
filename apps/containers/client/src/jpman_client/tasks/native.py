@@ -2,11 +2,10 @@
 声明式栈：唯一事实源 ``NATIVE_SPEC``；八任务由 overlay_core.make_stack_tasks
 工厂生成，栈内 exec 长任务（build-tvm/wheel）用内核 helper 薄封装（形态 B）。
 驱动 ``overlays/native-dev``：运行时 bind 挂载 npu_tvm / npuusertools / models
-源码（锚定 external/chaos）与 .temp（容器内 /workspace/temp，
-``NATIVE_TEMP_PATH`` 可覆盖），容器内 LLVM 22 + Nuitka 4.2.2 工具链。
+源码（锚定 external/chaos）、projects/（锚定仓库根）与 .temp（容器内
+/workspace/temp，``NATIVE_TEMP_PATH`` 可覆盖），容器内 LLVM 22 + Nuitka 4.2.2 工具链。
 
-栈本质是通用原生编译/wheel 打包平台：TVM 与 npuusertools 均为可改绑/可剥离
-的默认挂载变体，命名不绑定任何可插拔依赖；当前默认产品为 xmnn wheel。
+栈本质是通用原生编译/wheel 打包平台：TVM 与 npuusertools 均为可改绑/可剥离的默认挂载变体，命名不绑定任何可插拔依赖；当前默认产品为 xmnn wheel。
 双 cp314 ABI 契约（C13，禁止互换）：base env /opt/conda = cp314 GIL（工具链
 守卫/内核/打包解释器 BASE_PYTHON）；main env /opt/conda/envs/main = cp314t
 free-threading（量化/运行时）。10 命令：build/up/down/ps/logs/smoke/save/load，
@@ -78,8 +77,8 @@ NATIVE_SPEC = StackSpec(
         SourceMount("NPU_TVM_PATH", "external/chaos/npu_tvm", "npu_tvm 源码树（含 python/tvm）"),
         SourceMount("NPUUSERTOOLS_PATH", "external/containers/workspace/dev/npuusertools", "npuusertools 源码树（含 xmnn 包）"),
         SourceMount("MODELS_PATH", "external/chaos/models", "模型目录"),
-        # 临时目录（/workspace/temp）：缺省锚仓库根上溯四级 = 根工作区 .temp；
-        # must_exist=False → 缺失幂等 mkdir（追加在末尾：既有用例锁 source_mounts[0]）。
+        SourceMount("NATIVE_PROJECTS_PATH", "projects", "第一方子项目（projects/，git submodule）"),
+        # 临时目录（/workspace/temp）：缺省锚仓库根上溯四级 = 根工作区 .temp；must_exist=False（追加在末尾：既有用例锁 source_mounts[0]）。
         SourceMount("NATIVE_TEMP_PATH", "../../../../.temp", "临时目录（根工作区 .temp）", must_exist=False),
     ),
     smoke=SmokeSpec(
@@ -94,7 +93,7 @@ NATIVE_SPEC = StackSpec(
     bridge_env_keys=(
         "NATIVE_IMAGE_TAG", "NATIVE_CONTAINER_NAME", "NATIVE_WORKSPACE",
         "NATIVE_SSH_PORT", "NATIVE_JUPYTER_PORT", "NATIVE_OFFLINE",
-        "NPU_TVM_PATH", "NPUUSERTOOLS_PATH", "MODELS_PATH", "NATIVE_TEMP_PATH",
+        "NPU_TVM_PATH", "NPUUSERTOOLS_PATH", "MODELS_PATH", "NATIVE_PROJECTS_PATH", "NATIVE_TEMP_PATH",
         "TORCH_FLAVOR", "GPU_DEVICE", "NATIVE_PASSTHROUGH_IMAGE_TAG",
         "DBUS_SESSION_BUS_PATH", "HOST_NET_SSHD_PORT", "USB_DEVICE",
         # GUI（C33）：仅转发用户可设键；末两键供 ssh -X 的 X11/TCP 形态；探测令牌不入桥接。

@@ -16,6 +16,7 @@ source: "README.md#参数表compose-插值-env-键"
 | `NPU_TVM_PATH` | `../../../../../external/chaos/npu_tvm` | TVM 源码宿主路径 |
 | `NPUUSERTOOLS_PATH` | `../../../../../external/containers/workspace/dev/npuusertools` | xmnn 源码宿主路径 |
 | `MODELS_PATH` | `../../../../../external/chaos/models` | 模型目录宿主路径 |
+| `NATIVE_PROJECTS_PATH` | `../../../../../projects` | 第一方子项目目录（仓库根 `projects/`，git submodule 集合）→ /workspace/projects；与源码三类同为存在性硬校验项 |
 | `USER_PASSWORD` / `JUPYTER_TOKEN` | 空（自动生成） | 登录凭证 |
 | `SSH_PUBLIC_KEY` / `GRANT_SUDO` | 空 / `yes` | SSH 公钥 / devuser sudo |
 | `HOST_PODMAN_SOCK` / `PODMAN_RUNTIME_UID` | `/run/user/1000/podman/podman.sock` / 未设 | **B-scheme 宿主 rootless podman socket（C34，默认核心挂载，非 opt-in）**：容器内 Notebook/CLI 经它复用宿主 daemon，挂载 source==target==本键。`1000` 仅 WSL2 惯例 UID 的裸 compose 缺省；物理 Linux 按 `id -u` 覆盖（或只设 `PODMAN_RUNTIME_UID`，invoke 路径据此推导，裸 compose 不读此键）。invoke up 自动预检并免提权 `systemctl --user start podman.socket` 自愈；裸 compose 路径错误会在挂载期硬失败（`create_host_path: false`，有意保护）。排障见 07 文档 C-I5 行 |

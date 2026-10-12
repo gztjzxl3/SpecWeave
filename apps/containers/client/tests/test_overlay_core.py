@@ -232,8 +232,8 @@ def harness(monkeypatch, tmp_path):
         d = root / "overlays" / spec.overlay_subdir
         d.mkdir(parents=True, exist_ok=True)
         (d / spec.containerfile).write_text("# fake\n")
-    # native 三源码树（仓库根锚点）
-    for rel in ("external/chaos/npu_tvm", "external/containers/workspace/dev/npuusertools", "external/chaos/models"):
+    # native 三源码树 + 第一方子项目（仓库根锚点）
+    for rel in ("external/chaos/npu_tvm", "external/containers/workspace/dev/npuusertools", "external/chaos/models", "projects"):
         (tmp_path / "repo" / rel).mkdir(parents=True)
     (tmp_path / "repo" / "apps" / "agent-monetize").mkdir(parents=True)
 
@@ -763,6 +763,7 @@ def test_prepare_env_native_mounts_anchor_repo_root(harness):
     assert os.environ["NPU_TVM_PATH"].endswith("repo/external/chaos/npu_tvm")
     assert os.environ["NPUUSERTOOLS_PATH"].endswith("npuusertools")
     assert os.environ["MODELS_PATH"].endswith("models")
+    assert os.environ["NATIVE_PROJECTS_PATH"].endswith("repo/projects")
 
 
 def test_prepare_env_native_temp_mount_default_and_autocreate(harness, monkeypatch):
@@ -1196,6 +1197,7 @@ def test_bridge_keys_isolated_per_stack():
     assert "NATIVE_" not in joined and "MONETIZE_" not in joined
     assert "QUANT_WORKSPACE" in _QUANT.bridge_env_keys
     assert "NPU_TVM_PATH" in _NATIVE.bridge_env_keys
+    assert "NATIVE_PROJECTS_PATH" in _NATIVE.bridge_env_keys
     assert "NATIVE_TEMP_PATH" in _NATIVE.bridge_env_keys
     assert "MONETIZE_SRC_PATH" in _MONETIZE.bridge_env_keys
     xj = " ".join(_NATIVE.bridge_env_keys)

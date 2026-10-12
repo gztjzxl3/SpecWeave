@@ -82,12 +82,12 @@
 
 ## 4. 源码仅运行时挂载（构建期零接触）
 
-- 五个 bind（一律长语法 + `bind.create_host_path: true`）：
+- 六个 bind（一律长语法 + `bind.create_host_path: true`）：
   `NATIVE_WORKSPACE→/workspace`、`NPU_TVM_PATH→/workspace/npu_tvm`、
   `NPUUSERTOOLS_PATH→/workspace/npuusertools`、`MODELS_PATH→/workspace/models`、
-  `NATIVE_TEMP_PATH→/workspace/temp`。
-- invoke 路径把五个宿主路径解析为**绝对 POSIX 路径**注入（Dimension A
-  复用 `to_posix_path`），相对路径相对 invoke cwd；三个源码路径做
+  `NATIVE_PROJECTS_PATH→/workspace/projects`、`NATIVE_TEMP_PATH→/workspace/temp`。
+- invoke 路径把六个宿主路径解析为**绝对 POSIX 路径**注入（Dimension A
+  复用 `to_posix_path`），相对路径相对 invoke cwd；四个源码路径做
   **存在性硬校验**（缺失 Exit 1 + 中文指引），workspace 与 temp 走幂等
   mkdir（`SourceMount.must_exist=False`，缺失属正常首态）。
 - **临时目录 bind 的三条特例**（2026-09-22）：① 缺省锚仓库根**上溯四级**
@@ -98,7 +98,7 @@
   上溯越界，Exit(1) + 中文指引点名待设变量（不再裸抛 `PermissionError`），
   `create` 分支的 `OSError` 同样转为可操作报错；测试锁见
   `tests/test_overlay_core.py` 守卫三例（越界 fail-fast / 合法相对路径不误伤 /
-  权限拒绝转 Exit）；② 与四个同族 bind 的差异仅在「不列入存在性硬校验」，其余
+  权限拒绝转 Exit）；② 与五个同族 bind 的差异仅在「不列入存在性硬校验」，其余
   （长语法 + `create_host_path: true` + 绝对 POSIX 注入）逐条同构；
   ③ 该 bind **覆盖 `/workspace` 下的同名子目录**：容器内 `/workspace/temp`
   不再是宿主 `client/workspace/temp`（宿主文件不受影响，仅容器内不可见），
@@ -108,7 +108,9 @@
   source + `create_host_path: true` 会在 `client/workspace/` 下预创建
   `npu_tvm/npuusertools/models` 三个**空目录**（不影响真实挂载——容器内
   绑定的仍是 external/chaos 真源码，由 smoke_mounts 路径前缀断言保证）；
-  down 后可安全 `rmdir`（均为空）。invoke 路径注入绝对路径不产生该副产物。
+  down 后可安全 `rmdir`（均为空）。invoke 路径注入绝对路径不产生该副产物；
+  `NATIVE_PROJECTS_PATH` 缺省解析为仓库根 `projects/`（通常已存在，不产生
+  此副产物）。
 - 镜像构建上下文 = overlay 目录自身；Containerfile 不得 COPY/引用宿主
   源码树，不得出现 BuildKit `--mount=type=bind`、`chaos/ai`、`CHAOS_ROOT`。
 - TVM 构建产物默认就在挂载源码树 `npu_tvm/build/`（复用宿主既有
@@ -250,7 +252,7 @@
 - `network_mode: bridge` 是**带证据的偏差**：2026-09-14 同机实证 machine
   无 systemd user bus 时默认项目网络 aardvark-dns 必失败；实证注释保留在
   基文件与 native compose.yaml 文件头，不得擅自删改。
-- 栈文件只保留栈专属字段：image/build/ports/五个 bind volumes、调试
+- 栈文件只保留栈专属字段：image/build/ports/六个 bind volumes、调试
   environment、`labels.component`；`native-ccache`/`native-jupyter`/
   `native-ssh-host-keys` 三个命名卷等栈专属卷保持栈内声明（基文件无
   volumes/build/env_file/ports）。extends

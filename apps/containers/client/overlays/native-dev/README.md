@@ -1,10 +1,10 @@
 # Native 原生开发与 wheel 打包叠加层（Podman rootless + podman-compose）
 
 > 一句话：在 `localhost/jupyter-podman-rootless:latest` 之上做一层工具链叠加，
-> 运行时把 **npu_tvm / npuusertools / models 源码 + 根工作区临时目录 .temp**
-> bind 挂载进容器，提供 tvm/vta/xmnn 的源码调试环境（SSH + JupyterLab +
-> native-dev 内核），并在容器内用 **LLVM/Clang 22 + Nuitka 4.2.2** 一键打出
-> cp314 的 `xmnn-1.2.1.dev0-cp314-cp314-linux_x86_64.whl`。
+> 运行时把 **npu_tvm / npuusertools / models 源码、仓库根 projects/ 与根工作区
+> 临时目录 .temp** bind 挂载进容器，提供 tvm/vta/xmnn 的源码调试环境（SSH +
+> JupyterLab + native-dev 内核），并在容器内用 **LLVM/Clang 22 + Nuitka 4.2.2**
+> 一键打出 cp314 的 `xmnn-1.2.1.dev0-cp314-cp314-linux_x86_64.whl`。
 
 - **镜像**：`localhost/native-dev:latest`（薄叠加；含完整编译工具链，体积大于量化栈）
 - **双 Python ABI**：base env `/opt/conda/bin/python` = **cp314 GIL enabled**
@@ -13,7 +13,8 @@
 - **服务**：SSH（容器 22 → 宿主 **2223**）+ JupyterLab（**8890**），
   supervisord 托管，沿用基底 entrypoint
 - **源码**：运行时挂载，容器内固定路径 `/workspace/npu_tvm`、
-  `/workspace/npuusertools`、`/workspace/models`（镜像构建期零接触源码）
+  `/workspace/npuusertools`、`/workspace/models`、`/workspace/projects`
+  （第一方子项目；镜像构建期零接触源码）
 - **临时目录**：`NATIVE_TEMP_PATH`（默认根工作区 `.temp`）挂容器内
   `/workspace/temp`，编译/调试临时产物落仓库外 scratch 盘位
 - **编排**：podman-compose（rootless、无 privileged）；AI 硬约束见

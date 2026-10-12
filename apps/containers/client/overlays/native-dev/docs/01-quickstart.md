@@ -18,6 +18,7 @@ source: "README.md#路径一invoke-native推荐"
      `git submodule update --init` 检出 dmlc-core 等子模块）
    - `external/containers/workspace/dev/npuusertools`（xmnn 包 + tools_cpp/autolibs/fonts 数据）
    - `external/chaos/models`（模型目录）
+   - `projects/`（仓库根第一方子项目集合，容器内 `/workspace/projects`）
 4. **Windows 原生自动桥接**：与 quant.* 相同，Windows 原生 CPython 执行时
    自动桥接到 WSL 发行版（默认 `podman-machine-default`——client 专用
    rootless 发行版，与 flapping 的 Podman Desktop 默认 machine 相互独立、
@@ -107,7 +108,7 @@ podman-compose down
 > `invoke native.save` / `invoke native.load`（带 manifest 校验），裸 compose 无对应命令。
 
 `../compose.yaml`（叠加层根目录）已内置 rootless 三必需（`/dev/fuse`、`label=disable`、
-`cgroupns: host`），五个 bind 全部长语法，**无特权容器**；
+`cgroupns: host`），六个 bind 全部长语法，**无特权容器**；
 `network_mode: bridge` 是 2026-09-14 同机实证（machine 无 systemd user bus
 时默认项目网络 aardvark-dns 失败），见 compose 文件头注释。
 

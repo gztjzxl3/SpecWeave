@@ -25,8 +25,9 @@
 Windows 原生门禁（详见 [.agents/rules/quant-overlay.md](.agents/rules/quant-overlay.md)）。
 自 2026-09-14 起新增第二个 opt-in 工作负载栈 **`native.*` 命名空间**（同样
 podman-compose 子进程层），驱动 `overlays/native-dev` 开发/打包叠加镜像：
-运行时 bind 挂载 npu_tvm/npuusertools/models 源码，容器内 LLVM 22 + Nuitka 4.2.2
-工具链支撑源码调试与 xmnn whl 打包，Windows 原生门禁
+运行时 bind 挂载 npu_tvm/npuusertools/models 源码与仓库根 projects/
+（第一方子项目集合），容器内 LLVM 22 + Nuitka 4.2.2 工具链支撑源码调试与
+xmnn whl 打包，Windows 原生门禁
 （详见 [.agents/rules/native-overlay.md](.agents/rules/native-overlay.md)）。
 同日新增第三个 opt-in 工作负载栈 **`monetize.*` 命名空间**（podman-compose
 子进程层），驱动 `overlays/agent-monetize-dev`：client-overlay-scaffold

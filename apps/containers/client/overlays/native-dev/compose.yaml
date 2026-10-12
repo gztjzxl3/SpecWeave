@@ -17,8 +17,9 @@
 # ../_shared/base-rootless.yaml（extends 单一事实源），本文件只保留
 # native 栈专属：image/build/ports/volumes/栈 env/组件 label。严禁 privileged。
 #
-# 源码挂载均为可插拔变体（tvm / npuusertools / models；经 NPU_TVM_PATH
-# 等键改绑或剥离），镜像本身不绑定任何具体源码项目。
+# 源码挂载均为可插拔变体（tvm / npuusertools / models / projects；经
+# NPU_TVM_PATH、NATIVE_PROJECTS_PATH 等键改绑或剥离），镜像本身不绑定
+# 任何具体源码项目。
 #
 # network_mode: bridge 现已由基文件统一提供（2026-09-14 同机实证：
 # podman-machine-default 无 systemd user bus，默认项目网络启 aardvark-dns
@@ -67,9 +68,9 @@ services:
         bind:
           create_host_path: false
       # 全部长语法 bind：短语法在 podman-compose 下会 os.makedirs 误建源路径。
-      # invoke 路径把五个宿主路径解析为绝对 POSIX 路径注入（源码三类存在性硬
+      # invoke 路径把六个宿主路径解析为绝对 POSIX 路径注入（源码四类存在性硬
       # 校验；temp 类缺省自动 mkdir）；裸 compose 相对路径相对本文件：
-      # 五级 ../../../../../ 回到仓库根（external/* 源码锚点）。
+      # 五级 ../../../../../ 回到仓库根（external/* 与 projects/* 源码锚点）。
       - type: bind
         source: ${NATIVE_WORKSPACE:-../../workspace}
         target: /workspace
@@ -88,6 +89,16 @@ services:
       - type: bind
         source: ${MODELS_PATH:-../../../../../external/chaos/models}
         target: /workspace/models
+        bind:
+          create_host_path: true
+      # 第一方子项目（仓库根 projects/，git submodule 集合）：容器内改绑到
+      # /workspace/projects，供在开发栈内直接阅读/改动第一方子项目源码。
+      # 与 external/* 源码树同为存在性硬校验项（invoke 路径缺失即 Exit(1)）；
+      # 裸 compose 缺省五级回仓库根 projects/。注意：projects 不在镜像
+      # PYTHONPATH 内（不自动可 import），仅供源码级查阅/编辑。
+      - type: bind
+        source: ${NATIVE_PROJECTS_PATH:-../../../../../projects}
+        target: /workspace/projects
         bind:
           create_host_path: true
       # 临时目录：容器内 /workspace/temp 改绑到宿主根工作区 .temp（根 AGENTS.md

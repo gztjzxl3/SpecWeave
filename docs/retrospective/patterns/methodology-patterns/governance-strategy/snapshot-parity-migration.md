@@ -1,7 +1,7 @@
 ---
 type: Pattern
 id: "snapshot-parity-migration"
-source: "../../../../../projects/xuanspace/libs/xuan-compose/docs/delivery/2026-09-16-delivery-summary.md"
+source: "../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/delivery/2026-09-16-delivery-summary.md"
 x-toml-ref: "../../../../../.meta/toml/docs/retrospective/patterns/methodology-patterns/governance-strategy/snapshot-parity-migration.toml"
 maturity: "L1"
 validation_count: 1
@@ -114,8 +114,8 @@ L1（单案例：xuan-compose 对 podman-compose v1.6.0 的翻译式搬迁，202
 
 ## 参考实现与关联
 
-- 源案例：[交付总结](../../../../../projects/xuanspace/libs/xuan-compose/docs/delivery/2026-09-16-delivery-summary.md)、
-  [六则模式](../../../../../projects/xuanspace/libs/xuan-compose/docs/patterns/2026-09-16-refactor-patterns.md)（xuanspace 子模块内）；
+- 源案例：[交付总结](../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/delivery/2026-09-16-delivery-summary.md)、
+  [六则模式](../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/patterns/2026-09-16-refactor-patterns.md)（xuanspace 子模块内）；
 - 执行技能：[vendor-snapshot-parity](../../../../../.agents/skills/vendor-snapshot-parity/SKILL.md)；
 - 上位原则：[format-evidence-over-memory-pattern](format-evidence-over-memory-pattern.md)（证据优先于记忆的一般原则）；
 - 时序变体关系：[large-scale-duplication-elimination](../document-architecture/large-scale-duplication-elimination.md)

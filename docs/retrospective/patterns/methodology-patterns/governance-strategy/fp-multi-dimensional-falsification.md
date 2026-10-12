@@ -1,7 +1,7 @@
 ---
 type: Pattern
 id: "fp-multi-dimensional-falsification"
-source: "../../../../../projects/xuanspace/libs/xuan-compose/docs/verification/2026-09-16-full-parity-verification.md"
+source: "../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/verification/2026-09-16-full-parity-verification.md"
 x-toml-ref: "../../../../../.meta/toml/docs/retrospective/patterns/methodology-patterns/governance-strategy/fp-multi-dimensional-falsification.toml"
 maturity: "L1"
 validation_count: 1
@@ -134,7 +134,7 @@ L1（单案例：xuan-compose 交付后独立复验，2026-09-16）。
 
 ## 参考实现与关联
 
-- 源案例：[独立验证报告](../../../../../projects/xuanspace/libs/xuan-compose/docs/verification/2026-09-16-full-parity-verification.md)；
+- 源案例：[独立验证报告](../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/verification/2026-09-16-full-parity-verification.md)；
 - 执行工具：单维对拍用 [snapshot-parity-migration](snapshot-parity-migration.md)
   及其技能 vendor-snapshot-parity；
 - checklist 已固化时走 [spec-stage7-independent-validation](../ai-collaboration/spec-stage7-independent-validation.md)；

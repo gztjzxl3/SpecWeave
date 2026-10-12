@@ -1,7 +1,7 @@
 ---
 type: Pattern
 id: "dependency-ordered-slice-gates"
-source: "../../../../../projects/xuanspace/libs/xuan-compose/docs/patterns/2026-09-16-refactor-patterns.md"
+source: "../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/patterns/2026-09-16-refactor-patterns.md"
 x-toml-ref: "../../../../../.meta/toml/docs/retrospective/patterns/methodology-patterns/governance-strategy/dependency-ordered-slice-gates.toml"
 maturity: "L1"
 validation_count: 1
@@ -114,8 +114,8 @@ L1（单案例：xuan-compose T1-T12 单文件拆包，2026-09-16）。
 
 ## 参考实现与关联
 
-- 源案例：[单体重构可复用模式六则](../../../../../projects/xuanspace/libs/xuan-compose/docs/patterns/2026-09-16-refactor-patterns.md)、
-  [交付总结](../../../../../projects/xuanspace/libs/xuan-compose/docs/delivery/2026-09-16-delivery-summary.md)；
+- 源案例：[单体重构可复用模式六则](../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/patterns/2026-09-16-refactor-patterns.md)、
+  [交付总结](../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/delivery/2026-09-16-delivery-summary.md)；
 - 片内单维对拍工具：[snapshot-parity-migration](snapshot-parity-migration.md)；
 - 怪癖行为处置：[behavior-characterization-freeze](behavior-characterization-freeze.md)；
 - 委托执行分工（本模式决定"切什么、什么序"，分层法决定"谁来做"）：

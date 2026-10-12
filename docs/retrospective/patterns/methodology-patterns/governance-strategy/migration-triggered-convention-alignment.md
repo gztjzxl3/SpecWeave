@@ -128,8 +128,8 @@ L1（单案例：xuan-compose 迁入统一仓库并完成纯 Python 打包后端
 
 ## 参考实现与关联
 
-- 源案例（xuanspace 子模块内）：[单体重构可复用模式六则](../../../../../projects/xuanspace/libs/xuan-compose/docs/patterns/2026-09-16-refactor-patterns.md)、
-  [交付总结](../../../../../projects/xuanspace/libs/xuan-compose/docs/delivery/2026-09-16-delivery-summary.md)；
+- 源案例（xuanspace 子模块内）：[单体重构可复用模式六则](../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/patterns/2026-09-16-refactor-patterns.md)、
+  [交付总结](../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/delivery/2026-09-16-delivery-summary.md)；
 - 对新模块的创建侧对照：[convention-driven-creation](convention-driven-creation.md)（在成熟体系内新建
   模块时"先读范例、提取模板"）；
 - 渐进切换近亲：[dual-track-progressive-evolution](dual-track-progressive-evolution.md)（依赖就绪度切换

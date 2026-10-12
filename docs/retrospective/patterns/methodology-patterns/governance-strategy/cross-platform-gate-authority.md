@@ -1,7 +1,7 @@
 ---
 type: Pattern
 id: "cross-platform-gate-authority"
-source: "../../../../../projects/xuanspace/libs/xuan-compose/docs/patterns/2026-09-16-refactor-patterns.md"
+source: "../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/patterns/2026-09-16-refactor-patterns.md"
 x-toml-ref: "../../../../../.meta/toml/docs/retrospective/patterns/methodology-patterns/governance-strategy/cross-platform-gate-authority.toml"
 maturity: "L1"
 validation_count: 1
@@ -105,7 +105,7 @@ L1（单案例：xuan-compose Windows 主机 + WSL 双环境，2026-09-16）。
 
 ## 参考实现与关联
 
-- 源案例：[单体重构可复用模式六则](../../../../../projects/xuanspace/libs/xuan-compose/docs/patterns/2026-09-16-refactor-patterns.md)；
+- 源案例：[单体重构可复用模式六则](../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/patterns/2026-09-16-refactor-patterns.md)；
 - 多平台矩阵：[template-cross-platform-validation](template-cross-platform-validation.md)；
 - 子模块纪律配套：[dual-mode-submodule-governance](dual-mode-submodule-governance.md)；
 - 执行分工：[orchestration-execution-layering](orchestration-execution-layering.md)。

@@ -1,7 +1,7 @@
 ---
 type: Pattern
 id: "behavior-characterization-freeze"
-source: "../../../../../projects/xuanspace/libs/xuan-compose/docs/patterns/2026-09-16-refactor-patterns.md"
+source: "../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/patterns/2026-09-16-refactor-patterns.md"
 x-toml-ref: "../../../../../.meta/toml/docs/retrospective/patterns/methodology-patterns/governance-strategy/behavior-characterization-freeze.toml"
 maturity: "L1"
 validation_count: 1
@@ -70,7 +70,7 @@ L1（单案例：xuan-compose 翻译搬迁中 10+ 次怪癖纠正，2026-09-16�
    同一变更；先更新验收标准，再改代码。
 
 > **台账载体与同步门禁**：怪癖台账已落地为对等迁移目录下的独立文件
-> `libs/xuan-compose/docs/parity/upstream-quirks.md`；并增设门禁纪律——
+> `libs/xuan-compose/doc/dev/parity/upstream-quirks.md`；并增设门禁纪律——
 > **上游同步时强制复核台账条目的新增 / 升级 / 失效，输出台账 diff 复核结论**。
 
 ## 固化强度分级（L0-L3）
@@ -135,7 +135,7 @@ L1（单案例：xuan-compose 翻译搬迁中 10+ 次怪癖纠正，2026-09-16�
 
 ## 参考实现与关联
 
-- 源案例：[单体重构可复用模式六则](../../../../../projects/xuanspace/libs/xuan-compose/docs/patterns/2026-09-16-refactor-patterns.md)；
+- 源案例：[单体重构可复用模式六则](../../../../../projects/xuanspace/libs/xuan-compose/doc/dev/patterns/2026-09-16-refactor-patterns.md)；
 - 边界纪律上位模式：[no-touch-list](no-touch-list.md)；
 - 结构对等对拍：[snapshot-parity-migration](snapshot-parity-migration.md)；
 - 多维终验：[fp-multi-dimensional-falsification](fp-multi-dimensional-falsification.md)；

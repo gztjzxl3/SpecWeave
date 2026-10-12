@@ -50,6 +50,7 @@ technology-encapsulation-user-simplicity
 template-homogenization-escape
 three-layer-delivery-pipeline
 three-tier-iot-architecture
+unified-contract-tool-orchestration-layer
 vertical-saas-mcp-capability-exposure
 vertical-scenario-ai-three-elements
 weight-aligned-preparation

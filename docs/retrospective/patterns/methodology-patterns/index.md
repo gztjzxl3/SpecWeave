@@ -43,6 +43,7 @@
 | reverse-order-doc-learning | [逆序文档学习法](research-knowledge/reverse-order-doc-learning.md) | L1-draft | 1 | 0 | 百篇级、多人贡献、时效不均的社区/Git 文档站学习：不按官方目录顺读，先以版本控制接口逆向建图（文件树量化分布、骨架扫描、提交记录定年），再按学习者问题域（选型→安装→使用→开发→贡献）重组路径，三方交叉验证、冲突显式标注。案例：openKylin 文档平台 237 篇逆向导读（44 事实/4 洞察、首页与新手入口最旧），待第二个非同谱系文档站验证升 L1.5 |
 | docs-as-product | [文档即产品经营法](governance-strategy/docs-as-product.md) | L1-draft | 1 | 0 | 文档已成为对外交付面（用户按文档接入、集成方按文档判兼容、AI 检索按文档作答）且读者异质（终端用户/集成方/内部工程师/机器消费者）时：以"读者契约→最小公理集合→Diátaxis 四型原子分区→质量门内建 CI→预览发布节奏→M1–M5 指标回灌"六步把文档当产品持续经营。案例：QwenWork Canvas《文档即产品》主张页 V6 发布态（22 事实/4 洞察），待第二个非同谱系场景验证升 L1.5 |
 | migration-triggered-convention-alignment | [迁移窗口的结构约定对齐法（迁入即治理）](governance-strategy/migration-triggered-convention-alignment.md) | L1 | 1 | 0 | 外部单体或新包迁入已存在公共约定的统一仓库（monorepo）、迁入动作一次性暴露被迁包隐性私有约定时：在同一迁移窗口内完成私有约定→公共约束对齐（构建后端与参数/语言版本/版本来源/目录文档形态），以未解释偏离数替代功能提交计数，并将可机械判定项纳入自动核验。案例：xuan-compose 迁入玄境 monorepo（2026-08-26 后 38 次增量；同期上游怪癖分级并入 behavior-characterization-freeze），待跨项目验证升 L2 |
+| unified-contract-tool-orchestration-layer | [统一契约工具编排层](product-growth/unified-contract-tool-orchestration-layer.md) | L1-draft | 1 | 0 | 一个消费者需统一使用多个异构外部工具（AI agent/上层服务），且工具为用户自备不可改造时：不逐工具接入，而是在消费者与工具间插入统一契约适配层——每个工具经 Provider 适配器接入，把"工具结果+元数据+运行时观测"规整为契约化工具与证据，能力以契约为单一事实源、CLI/前端只是契约投影，本地优先有界证据。案例：REA rea-agents v6.4.0 统一 MCP 契约编排（66 条源码事实） |
 
 ## 成熟度等级说明
 

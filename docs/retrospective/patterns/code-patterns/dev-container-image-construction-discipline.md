@@ -125,6 +125,15 @@ Containerfile 内须包含：
 
 判据边界：判 ENV-LIMIT 的前提是**报错发生在嵌套 userns 初始化环节，且错误码指向权限/映射受限**；凡属"组件缺失、依赖不全、命令不存在"等镜像自身缺陷，一律判 FAIL，不得借降级掩盖包装缺陷。如此把"镜像就绪"与"镜像可跑高级特性"分离评估，避免把 OS 平台级限制误报为镜像缺陷。
 
+### 洞察：镜像存储可见性与运行身份绑定
+
+rootful 与 rootless podman 的镜像存储是**两个独立的 store**：root 镜像落在 `/var/lib/containers`，普通用户落在各自的 `~/.local/share/containers`。因此 root 构建的镜像，默认用户用 `podman images` 查询会得到空列表——这是存储身份差异而非"镜像未构建"。
+
+* **现象**：`openKylin-3.0-desktop` 发行版内，默认用户 `podman images` 返回空表头；`--user root podman images` 却能列出 `localhost/openkylin:3.0` 与 `localhost/openkylin-dev:3.0`（2026-10-12 实测）。
+* **根因**：root 身份构建的镜像只写入 rootful store，与 rootless store（默认用户查询路径）互不可见。
+* **影响**：若以错身份枚举镜像，会产出"镜像不存在/未构建"的假性结论，直接误导后续 `podman load` / 导出分发 / 验证步骤；跨 WSL 环境打包导出时尤易踩中。
+* **行动**：凡镜像生命周期操作（构建/导出 `save` / 导入 `load` / 枚举 `images`）一律在 rootful store 内以显式 `--user root`（或 `sudo`）身份执行；默认用户查询仅用于确认 non-root store 状态。
+
 ## 反模式（不要这么做）
 
 * ❌ **轻信 registry tag 语义**：直接用 `FROM openkylin/openkylin:latest` 假设是目标版本，而不实测 os-release——`latest` 可能解析为 LTS 轨而非期望的创新版，基底版本与预期错位。
@@ -134,6 +143,7 @@ Containerfile 内须包含：
 * ❌ **探针不兼容目标环境拼写**：探针用严格 `zh_CN.UTF-8` 精确匹配，实测基底为 `zh_CN.utf8`；正确做法是大小写/连字符兼容匹配。
 * ❌ **多跳 shell 直接透传多行脚本**：把含引号与 `$` 的多行脚本经 wsl.exe argv 透传，被二次 shell 展开破坏，产生假性失败（如 `id: "devuser": 无此用户`）；应 base64 单 token 解码执行。
 * ❌ **验证一刀切判 fail**：对嵌套 rootless 等平台限制输出也判 fail，把 ENV-LIMIT 误报为镜像缺陷，掩盖"镜像就绪已验证"的真实结论。
+* ❌ **用错身份枚举/导出镜像**：默认用户执行 `podman images` / `podman save`，因只读 rootless store 而看不到 root 构建的镜像，把"存储身份差异"误判为"镜像未构建"，导出到空 tar 或误走重新构建流程。正确做法：root 或 `sudo podman` 操作。
 
 ## 检验标准
 
@@ -143,6 +153,7 @@ Containerfile 内须包含：
 4. **三层验证全过**：静态探针 / 全量启动 healthy / 服务探针（进程 + 端口 + HTTP）三层均通过。
 5. **环境限制闭环**：受宿主限制的高级特性被显式记录为 ENV-LIMIT（预期降级），未误报为 FAIL；未以违规参数（如 `--privileged`）绕过。
 6. **安全边界明确**：无硬编码密码/密钥，敏感服务（如无 token Jupyter / 密码 SSH）仅限本地，运行契约参数（`--device /dev/fuse` 等 + 严禁 `--privileged`）被文档化。
+7. **镜像身份可见性核验**：以 root 身份执行 `podman images` 能列出目标镜像；`podman save` 产出的 tar 非空且 `manifest` config 摘要与源镜像 ID 一致，导出/验证未因身份错位而失真。
 
 ## 迁移示例
 

@@ -23,6 +23,7 @@ import os
 import platform
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import time
@@ -330,6 +331,177 @@ def ensure_workspace_checkpoint_writable(workspace: Path | str) -> None:
     except OSError as exc:
         print(f"[compose] ⚠ 未能放宽 checkpoint 目录权限（Jupyter 保存可能报 Errno 13）：{exc}")
         print(f'        可在宿主侧手动修正：chmod 777 "{cp}"')
+
+
+def _wanted_bind_mode(mode: int, *, is_dir: bool, writable: bool) -> int:
+    """按容器内 devuser（固定 UID 1000）经 **other 位**访问的契约计算目标模式。
+
+    **单调只加不减**：门禁语义是「放宽」，任何既存写位/setgid/sticky 都原样
+    保留——只读树里已有的 0777 目录不得被降级成 0755（对非属主 inode 尝试
+    降级还会立刻 EPERM 并污染整个遍历）。
+
+    - 目录：补 ugo 读/执行位；writable 再补 ugo 写位（0777 语义）。
+    - 文件：补 ugo 读位；任一执行位存在则补 ugo 执行位（``a+rX`` 语义）；
+      writable 再补 ugo 写位（``a+rwX`` 语义）。
+    """
+    wanted = mode | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
+    if is_dir:
+        wanted |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    elif mode & 0o111:
+        wanted |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    if writable:
+        wanted |= stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
+    return wanted & 0o7777
+
+
+def ensure_world_writable_dir(
+    path: Path | str, *, label: str, namespace: str = "compose"
+) -> bool:
+    """幂等放宽**单个目录**为 0777（非递归、只改权限位、保留 setgid/sticky）。
+
+    用于 temp/checkpoint 类挂载根：容器内 devuser 自建的子项属主为其自身，
+    无需递归处理；但根目录本身须可写（宿主进程按默认 umask 预建时常落 0755）。
+    返回是否实际放宽且生效。失败只警告不抛错（与 checkpoint 契约一致）。
+    """
+    p = Path(path)
+    try:
+        cur = stat.S_IMODE(p.stat().st_mode)
+        wanted = cur | 0o777
+        if cur != wanted:
+            p.chmod(wanted)
+            if stat.S_IMODE(p.stat().st_mode) & 0o002 == 0:
+                # 9p/drvfs 无 metadata 挂载项：chmod rc=0 但位不变（W-I19）
+                print(f"[{namespace}] ⚠ {label} 权限位放宽未生效（chmod 后仍不可写）：{p}")
+                print("        若宿主为 WSL/9p 挂载，chmod 是空操作，请按 docs/04 W-I19 在宿主侧处置。")
+                return False
+            print(f"[{namespace}] 已放宽挂载点 {label} 为 0777（非递归，仅权限位）：{p}")
+        return True
+    except OSError as exc:
+        print(f"[{namespace}] ⚠ 未能放宽 {label} 权限（容器内写入可能报 Errno 13）：{exc}")
+        print(f'        可在宿主侧手动修正：chmod 777 "{p}"')
+        return False
+
+
+def ensure_bind_tree_accessible(
+    path: Path | str,
+    *,
+    writable: bool,
+    label: str,
+    namespace: str = "compose",
+) -> tuple[int, int]:
+    """放宽 bind 挂载**宿主源树**权限位，使容器内 devuser（固定 UID 1000）可达。
+
+    背景（2026-10-12 native-dev 栈实测，排障 C-I12）：rootless podman 固定
+    映射下容器 UID 0 对应当前宿主用户，容器 devuser(1000) 落在 /etc/subuid
+    区间内对应一个宿主子 UID。宿主侧若以 0700 检出/同步源码树（AI 工具落盘、
+    umask 077、rsync 保权均常见），进容器即呈 ``root:root 0700``，devuser
+    只能凭 **other 位**访问 → Jupyter 内 ``pip install -e .`` 在读
+    pyproject.toml 阶段即 ``OSError: [Errno 13] Permission denied``，目录
+    写位缺失还会继续卡住 egg-info 落盘。栈内其他 bind 树（npu_tvm/
+    npuusertools/models）的事实契约本就是 0777/0755 + other 位可访问，本函数
+    把该契约从「靠自觉」升级为 up/build/smoke 前 prepare_env 咽喉点的幂等门禁。
+
+    红线（与 checkpoint 契约同族）：
+      - **只改权限位、永不 chown**（改属主会穿透为宿主子 UID，破坏宿主 git 工作流）；
+      - 作用域仅限声明式挂载的源树，不触及其余宿主路径；
+      - 不跟随符号链接（Linux 无 lchmod 语义，且防越树）；
+      - POSIX-only：Windows 原生直接跳过（NTFS/9p 语义不同，跨运行时无主文件
+        由 docs/04 W-I7/W-I19 的宿主侧处置覆盖）；
+      - 失败只警告不阻断栈启动；chmod 后位不变（9p 无 metadata 空操作）时点名
+        W-I19，不假装修好。
+
+    :returns: ``(已修正 inode 数, 失败 inode 数)``，供测试与日志使用。
+    """
+    if os.name != "posix":
+        return 0, 0
+    root = Path(path)
+    try:
+        if not root.is_dir():
+            return 0, 0
+    except OSError as exc:
+        print(f"[{namespace}] ⚠ {label} 挂载源无法访问，跳过权限门禁：{exc}")
+        return 0, 0
+
+    # 属主墙早退：挂载树可能由其他宿主账户/另一 UID 映射上下文写入（实测
+    # models 树存在 uid=1001 的 0700 子树），当前用户对这些 inode 的 chmod 恒
+    # EPERM、os.walk 下钻 sealed 目录同样报错——逐个尝试既修不好又会把 up 拖到
+    # 数十秒。失败达到阈值即停止遍历，输出属主账户手工命令（warn-only）。
+    failure_budget = 20
+    fixed = 0
+    failed: list[str] = []
+    aborted = False
+
+    def relax(p: Path, *, is_dir: bool) -> None:
+        nonlocal fixed, aborted
+        if aborted:
+            return
+        try:
+            cur = p.lstat()
+            if stat.S_ISLNK(cur.st_mode):
+                return
+            cur_mode = stat.S_IMODE(cur.st_mode)
+            wanted = _wanted_bind_mode(cur_mode, is_dir=is_dir, writable=writable)
+            if cur_mode == wanted:
+                return
+            p.chmod(wanted)
+            fixed += 1
+        except OSError as exc:
+            failed.append(f"{p}（{exc.__class__.__name__}）")
+            if len(failed) >= failure_budget:
+                aborted = True
+
+    def _on_walk_error(exc: OSError) -> None:
+        if not aborted:
+            failed.append(f"{getattr(exc, 'filename', '?')}（{exc.__class__.__name__}）")
+            if len(failed) >= failure_budget:
+                aborted = True  # 配合循环侧 break/清空 dirnames 尽快收敛
+
+    relax(root, is_dir=True)
+    for dirpath, dirnames, filenames in os.walk(
+        root, followlinks=False, onerror=_on_walk_error
+    ):
+        if aborted:
+            break
+        base = Path(dirpath)
+        for name in dirnames:
+            relax(base / name, is_dir=True)
+            if aborted:
+                break
+        if aborted:
+            dirnames.clear()  # 阻止 os.walk 继续下钻
+            break
+        for name in filenames:
+            relax(base / name, is_dir=False)
+            if aborted:
+                break
+
+    # 生效校验：根目录目标 other 位仍缺失 = 9p/drvfs 空操作（rc=0 属性不变）
+    probe = stat.S_IWOTH if writable else stat.S_IROTH
+    try:
+        noop = stat.S_IMODE(root.stat().st_mode) & probe == 0
+    except OSError:
+        noop = True
+    if fixed:
+        flavor = "可读写 a+rwX/目录777" if writable else "只读 a+rX/目录755"
+        print(
+            f"[{namespace}] 已放宽挂载源「{label}」权限位：{fixed} 个 inode"
+            f"（{flavor}，仅权限位不改属主）：{root}"
+        )
+    if noop:
+        print(f"[{namespace}] ⚠「{label}」chmod 未在宿主文件系统生效（根目录仍缺 other 位）：{root}")
+        print("        WSL/9p 无 metadata 挂载项下 chmod 是空操作，处置见 docs/04 W-I19（宿主侧换 inode）。")
+    if failed:
+        shown = "；".join(failed[:5])
+        tail = "（已达阈值，停止遍历）" if aborted else ""
+        print(f"[{namespace}] ⚠「{label}」{len(failed)} 个 inode 放宽失败{tail}（不阻断启动）：{shown}")
+        if aborted:
+            print("        多为其他宿主账户/运行时写入的 inode：请以该属主账户（或 sudo）执行下列命令后重试。")
+        if writable:
+            print(f'        宿主侧手工修正：find "{root}" -type d -exec chmod 777 {{}} + && '
+                  f'find "{root}" -type f -exec chmod a+rwX {{}} +')
+        else:
+            print(f'        宿主侧手工修正：chmod -R a+rX "{root}"')
+    return fixed, len(failed)
 
 
 # ---------------------------------------------------------------------------

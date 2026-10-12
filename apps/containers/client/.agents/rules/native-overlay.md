@@ -134,6 +134,8 @@
   `utils.ensure_workspace_checkpoint_writable()`（quant 栈同族接线；
   幂等 0777、只改权限位不改属主、只作用该单一目录不递归、不触碰三个源码
   bind）；禁止把该职责退回镜像/entrypoint 层（薄叠加不覆盖基底）。
+- **bind 源码树 other 位门禁契约（2026-10-12 实证，排障 C-I12）**：rootless 固定 UID 映射下（容器 devuser=1000 → 宿主 subuid 494215），宿主侧 umask 077 落盘的源码树（0700、属主=宿主运行账户）经 bind 进容器呈 `0:0 0700`，devuser 既非属主也非属组、**只能凭 other 位**——Jupyter 改源码与 `pip install -e .` 直接 Errno 13（实证：xuanspace/pyproject.toml）。`overlay_core.prepare_env()` 在挂载前对每个 `SourceMount` 源树调 `utils.ensure_bind_tree_accessible()` 幂等放宽：可写树 `a+rwX`（目录补 777、文件补 666/777）、只读树 `a+rX`；**模式位只加不减**（不得降级既有 777，对非属主 inode 降级会立即 EPERM 并污染整树）、**永不 chown**、跳过符号链接、非 POSIX/路径缺失即跳过；失败 warn-only 不阻断启动，非当前属主子树 chmod 累计 20 次早退并打印属主账户/sudo 手工命令（实测本地 xfs 即时透传，与 W-I19的 9p/drvfs 空操作禁忌不冲突——那条禁令只针对 9p/drvfs metadata 挂载，本机本地盘不适用）。`SourceMount.writable` 字段决定策略（MODELS_PATH 纯数据树=False）。冒烟红线：**容器 root 视角的可达性检查会掩盖本类故障**（root DAC 绕过能读 0700），`smoke_mounts.py` 1b 段必须 fork+setuid(1000) 下沉到 devuser 视角，且 projects 逐子项目探测入口文件（全树取首个会假阴性）。
+
 - **工作区 9p 无主文件契约（2026-09-20 实证，排障 W-I19）**：宿主工作区若被
   **另一 UID 映射上下文**写过（subuid 基线 ≠ 本机 524288 的运行时，如 Docker /
   其他 WSL podman 实例），旧文件在宿主侧落成 **100999** 之类**未映射 UID**，

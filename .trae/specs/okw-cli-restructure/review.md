@@ -55,3 +55,14 @@ P2-2/P2-4 采纳后已重跑全量：**349 passed / 97%**，行为零变化（�
 
 - 七项任务全部 completed 且证据回填完整；本审查 PASS，规格 AC-1~AC-10 关闭。
 - 工作区变更**未做 Git 提交**；提交时遵循原子提交规范，并在提交说明中：①标注 P2-1 故障路径改善；②注明 CLI 快照由生成器一次性生成（Task 2）。
+
+## 六、审查后优化跟进（2026-10-12）
+
+审查 PASS 并完成两次原子提交（`9e40dc21b` docs、`03aa3457c` refactor）后，按用户决策继续处理 P2 项与内部债务，新增两次本地提交（未推送）：
+
+1. **P2 兼容层清理（提交 `e86c6411b`）**：全包走查证实五个迁移期别名（`podman.cmd_preflight/cmd_install/cmd_verify`、`image.cmd_build/cmd_verify`）已无真实消费者——旧测试均经 `cli.main` 走注册表，别名仅被 Task 5 专为兼容期写的断言引用。删除两领域模块的 PEP 562 `__getattr__` 与迁移注释（−90/+7），注册表测试删除 8 条别名断言（保留键集/可调用性/零副作用探针），过时注释同步更正；341 项测试全绿，CLI 表面零变化。注册表自此成为 handler 的唯一分发路径。
+2. **P2-3 关闭**：新增 [cli/\_\_main\_\_.py](file:///d:/AI/apps/dev-tools/openkylin-wsl-devkit/src/okw/cli/__main__.py)，`python -m okw.cli` 与 `python -m okw`、console script 三形态等价（真实冒烟 `okw 0.1.0`）。
+3. **类型注解**：14 个 handler 统一签名 `(args: argparse.Namespace) -> int`，注册表新增 `Handler = Callable[[argparse.Namespace], int]` 别名并标注 `dict[str, Handler]`；全部 3.10 兼容（无 PEP 604/PEP 563），AST 守护参数化自动覆盖。
+4. **入口测试**：新增 test_entry_points.py（4 用例，runpy 覆盖两个 __main__ 的 --version/无参数路径），`__main__.py` 与 `cli/__main__.py` 覆盖率均达 100%；全量 **347 passed / 97%**。
+5. **P2-1** 维持登记保留（故障路径改善，退出码不变）；**P2-2/P2-4** 注释已于审查当日采纳。领域层故障防御分支（podman/image/distro/verify 共 33 miss 行）经评估补测成本与回归风险偏高且 AC-10 早已达标，明确不补。
+

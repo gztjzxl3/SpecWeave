@@ -3,12 +3,13 @@
 ScaffoldError 不在此捕获：统一由 okw.cli.main 单点收口（stderr「错误：…」+ 退出码 1）。
 """
 
+import argparse
 import sys
 
 from okw import scaffold
 
 
-def cmd_scaffold(args) -> int:
+def cmd_scaffold(args: argparse.Namespace) -> int:
     if args.kind == "deb":
         files = scaffold.scaffold_deb(args.project, args.series, args.version, args.output_dir)
         print(f"已生成 debian/ 打包骨架（{len(files)} 个文件）：")

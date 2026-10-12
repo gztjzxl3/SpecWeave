@@ -3,12 +3,13 @@
 函数体自原 okw.cli 逐字迁入。
 """
 
+import argparse
 import sys
 
 from okw import ref
 
 
-def cmd_ref(args) -> int:
+def cmd_ref(args: argparse.Namespace) -> int:
     if args.topic:
         topic = ref.get_topic(args.topic)
         if topic is None:

@@ -3,12 +3,13 @@
 函数体自原 okw.cli 逐字迁入，输出文案与退出码保持不变。
 """
 
+import argparse
 import sys
 
 from okw import distro
 
 
-def cmd_list(_args) -> int:
+def cmd_list(_args: argparse.Namespace) -> int:
     distros = distro.list_distros()
     if not distros:
         print("未发现任何 WSL 发行版（wsl --import 导入 openKylin 后重试）")
@@ -23,7 +24,7 @@ def cmd_list(_args) -> int:
     return 0
 
 
-def cmd_status(args) -> int:
+def cmd_status(args: argparse.Namespace) -> int:
     d = distro.get_distro(args.name)
     if d is None:
         print(f"发行版 {args.name} 不存在（wsl -l -v 查看在列发行版）", file=sys.stderr)
@@ -33,7 +34,7 @@ def cmd_status(args) -> int:
     return 0
 
 
-def cmd_import(args) -> int:
+def cmd_import(args: argparse.Namespace) -> int:
     res = distro.import_distro(args.image, args.name, args.location, args.version)
     if not res.ok:
         print("导入失败，按知识库 §4 排障三问排查：", file=sys.stderr)
@@ -49,7 +50,7 @@ def cmd_import(args) -> int:
     return 0
 
 
-def cmd_export(args) -> int:
+def cmd_export(args: argparse.Namespace) -> int:
     res = distro.export_distro(args.name, args.output)
     if not res.ok:
         print(f"导出失败：{res.stderr.strip() or f'exit={res.exit_code}'}", file=sys.stderr)
@@ -58,7 +59,7 @@ def cmd_export(args) -> int:
     return 0
 
 
-def cmd_unregister(args) -> int:
+def cmd_unregister(args: argparse.Namespace) -> int:
     res = distro.unregister_distro(args.name, yes=args.yes)
     if not res.ok:
         print(f"已拒绝：{res.stderr.strip()}", file=sys.stderr)
@@ -67,7 +68,7 @@ def cmd_unregister(args) -> int:
     return 0
 
 
-def cmd_exec(args) -> int:
+def cmd_exec(args: argparse.Namespace) -> int:
     cmd = list(args.cmd)
     if cmd and cmd[0] == "--":
         cmd = cmd[1:]

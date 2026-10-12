@@ -9,6 +9,9 @@
 在 cli.parser 装配 parser；test_command_registry 会强制三者一致。
 """
 
+import argparse
+from collections.abc import Callable
+
 from okw.commands.distro_cmds import (
     cmd_exec,
     cmd_export,
@@ -26,7 +29,10 @@ from okw.commands.ref_cmds import cmd_ref
 from okw.commands.scaffold_cmds import cmd_scaffold
 from okw.commands.verify_cmds import cmd_verify
 
-COMMAND_HANDLERS = {
+# 所有 handler 统一签名：消费 argparse 解析出的 Namespace，返回进程退出码。
+Handler = Callable[[argparse.Namespace], int]
+
+COMMAND_HANDLERS: dict[str, Handler] = {
     "list": cmd_list,
     "status": cmd_status,
     "import": cmd_import,

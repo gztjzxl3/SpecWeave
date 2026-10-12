@@ -497,26 +497,21 @@ def format_verify(report: VerifyReport) -> str:
     return "\n".join(lines)
 
 
-def cmd_build(args) -> int:
-    """CLI 入口：okw image build <发行版> [--tag] [--base-image] [--pull-base] [--no-cache] [--context]。"""
-    report = build_run(
-        args.name,
-        tag=getattr(args, "tag", DEFAULT_TAG),
-        base_image=getattr(args, "base_image", DEFAULT_BASE_IMAGE),
-        pull_base=bool(getattr(args, "pull_base", False)),
-        no_cache=bool(getattr(args, "no_cache", False)),
-        context=getattr(args, "context", None),
-    )
-    print(format_build(report))
-    return report.exit_code()
+# CLI handler（cmd_build/cmd_verify）已迁至 okw.commands.image_cmds；
+# 下方 PEP 562 __getattr__ 保留 image.cmd_build / image.cmd_verify 旧路径别名。
 
+def __getattr__(name):
+    """兼容别名：旧调用路径 image.cmd_build/cmd_verify。
 
-def cmd_verify(args) -> int:
-    """CLI 入口：okw image verify <发行版> [--image] [--no-boot]。"""
-    report = verify_run(
-        args.name,
-        image=getattr(args, "image", DEFAULT_IMAGE),
-        no_boot=bool(getattr(args, "no_boot", False)),
-    )
-    print(format_verify(report))
-    return report.exit_code()
+    新代码一律从 ``okw.commands.COMMAND_HANDLERS`` 取 handler；惰性导入
+    commands 包以避免与 commands.image_cmds（其导入本模块）形成循环。
+    """
+    from okw.commands import image_cmds
+
+    aliases = {
+        "cmd_build": image_cmds.cmd_build,
+        "cmd_verify": image_cmds.cmd_verify,
+    }
+    if name in aliases:
+        return aliases[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -12,11 +12,13 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from okw.errors import OkwError
+
 WSL_UTF8 = "1"
 DEFAULT_IMPORT_VERSION = "2"
 GZIP_MAGIC = b"\x1f\x8b"
 
-class WslError(Exception):
+class WslError(OkwError):
     """受控的 WSL 错误（带中文可操作信息），禁止向外抛原始异常。"""
 
 @dataclass(frozen=True)

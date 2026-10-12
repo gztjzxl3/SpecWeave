@@ -1,0 +1,707 @@
+{
+  "prog": "okw",
+  "description": "openKylin WSL 开发工具包：以 WSL 为切入点的发行版管理、环境验收、脚手架与知识参考。",
+  "epilog": null,
+  "actions": [
+    {
+      "kind": "_VersionAction",
+      "option_strings": [
+        "--version"
+      ],
+      "dest": "version",
+      "nargs": 0,
+      "required": false,
+      "metavar": null,
+      "help": "show program's version number and exit",
+      "default": "'==SUPPRESS=='",
+      "version": "okw 0.1.0"
+    },
+    {
+      "kind": "_SubParsersAction",
+      "option_strings": [],
+      "dest": "command",
+      "nargs": "A...",
+      "required": false,
+      "metavar": "<command>",
+      "help": null,
+      "default": "None",
+      "subparsers_dest": "command",
+      "subparsers_metavar": "<command>",
+      "choice_helps": [
+        {
+          "option_strings": [],
+          "dest": "list",
+          "metavar": "list",
+          "help": "列出 WSL 发行版（含默认星标）"
+        },
+        {
+          "option_strings": [],
+          "dest": "status",
+          "metavar": "status",
+          "help": "查看单个发行版状态"
+        },
+        {
+          "option_strings": [],
+          "dest": "import",
+          "metavar": "import",
+          "help": "导入 openKylin 镜像（wsl --import 封装）"
+        },
+        {
+          "option_strings": [],
+          "dest": "export",
+          "metavar": "export",
+          "help": "导出发行版为 tar 包"
+        },
+        {
+          "option_strings": [],
+          "dest": "unregister",
+          "metavar": "unregister",
+          "help": "注销发行版（破坏性，需 --yes）"
+        },
+        {
+          "option_strings": [],
+          "dest": "exec",
+          "metavar": "exec",
+          "help": "在发行版内执行命令"
+        },
+        {
+          "option_strings": [],
+          "dest": "verify",
+          "metavar": "verify",
+          "help": "openKylin 环境五步验收"
+        },
+        {
+          "option_strings": [],
+          "dest": "scaffold",
+          "metavar": "scaffold",
+          "help": "生成开发脚手架（deb / dput）"
+        },
+        {
+          "option_strings": [],
+          "dest": "ref",
+          "metavar": "ref",
+          "help": "openKylin 知识库快速参考"
+        },
+        {
+          "option_strings": [],
+          "dest": "image",
+          "metavar": "image",
+          "help": "openKylin 开发容器镜像：在发行版内构建与验收"
+        },
+        {
+          "option_strings": [],
+          "dest": "podman",
+          "metavar": "podman",
+          "help": "openKylin 发行版内 rootless Podman 预检、安装与验收"
+        }
+      ],
+      "choices": [
+        {
+          "name": "list",
+          "parser": {
+            "prog": "okw list",
+            "description": null,
+            "epilog": null,
+            "actions": []
+          }
+        },
+        {
+          "name": "status",
+          "parser": {
+            "prog": "okw status",
+            "description": null,
+            "epilog": null,
+            "actions": [
+              {
+                "kind": "_StoreAction",
+                "option_strings": [],
+                "dest": "name",
+                "nargs": null,
+                "required": true,
+                "metavar": null,
+                "help": null,
+                "default": "None"
+              }
+            ]
+          }
+        },
+        {
+          "name": "import",
+          "parser": {
+            "prog": "okw import",
+            "description": null,
+            "epilog": null,
+            "actions": [
+              {
+                "kind": "_StoreAction",
+                "option_strings": [],
+                "dest": "image",
+                "nargs": null,
+                "required": true,
+                "metavar": null,
+                "help": ".wsl 镜像文件路径（gzip tar）",
+                "default": "None"
+              },
+              {
+                "kind": "_StoreAction",
+                "option_strings": [
+                  "--name"
+                ],
+                "dest": "name",
+                "nargs": null,
+                "required": true,
+                "metavar": null,
+                "help": "发行版名称，如 openKylin-3.0",
+                "default": "None"
+              },
+              {
+                "kind": "_StoreAction",
+                "option_strings": [
+                  "--location"
+                ],
+                "dest": "location",
+                "nargs": null,
+                "required": true,
+                "metavar": null,
+                "help": "安装目录（VHD 存放位置）",
+                "default": "None"
+              },
+              {
+                "kind": "_StoreAction",
+                "option_strings": [
+                  "--version"
+                ],
+                "dest": "version",
+                "nargs": null,
+                "required": false,
+                "metavar": null,
+                "help": "WSL 版本（默认 2）",
+                "default": "'2'"
+              }
+            ]
+          }
+        },
+        {
+          "name": "export",
+          "parser": {
+            "prog": "okw export",
+            "description": null,
+            "epilog": null,
+            "actions": [
+              {
+                "kind": "_StoreAction",
+                "option_strings": [],
+                "dest": "name",
+                "nargs": null,
+                "required": true,
+                "metavar": null,
+                "help": null,
+                "default": "None"
+              },
+              {
+                "kind": "_StoreAction",
+                "option_strings": [
+                  "--output"
+                ],
+                "dest": "output",
+                "nargs": null,
+                "required": true,
+                "metavar": null,
+                "help": "输出文件路径",
+                "default": "None"
+              }
+            ]
+          }
+        },
+        {
+          "name": "unregister",
+          "parser": {
+            "prog": "okw unregister",
+            "description": null,
+            "epilog": null,
+            "actions": [
+              {
+                "kind": "_StoreAction",
+                "option_strings": [],
+                "dest": "name",
+                "nargs": null,
+                "required": true,
+                "metavar": null,
+                "help": null,
+                "default": "None"
+              },
+              {
+                "kind": "_StoreTrueAction",
+                "option_strings": [
+                  "--yes"
+                ],
+                "dest": "yes",
+                "nargs": 0,
+                "required": false,
+                "metavar": null,
+                "help": "确认注销",
+                "default": "False"
+              }
+            ]
+          }
+        },
+        {
+          "name": "exec",
+          "parser": {
+            "prog": "okw exec",
+            "description": null,
+            "epilog": null,
+            "actions": [
+              {
+                "kind": "_StoreAction",
+                "option_strings": [],
+                "dest": "name",
+                "nargs": null,
+                "required": true,
+                "metavar": null,
+                "help": null,
+                "default": "None"
+              },
+              {
+                "kind": "_StoreAction",
+                "option_strings": [],
+                "dest": "cmd",
+                "nargs": "...",
+                "required": false,
+                "metavar": null,
+                "help": "命令及参数（建议加 -- 分隔）",
+                "default": "None"
+              }
+            ]
+          }
+        },
+        {
+          "name": "verify",
+          "parser": {
+            "prog": "okw verify",
+            "description": null,
+            "epilog": null,
+            "actions": [
+              {
+                "kind": "_StoreAction",
+                "option_strings": [],
+                "dest": "name",
+                "nargs": null,
+                "required": true,
+                "metavar": null,
+                "help": null,
+                "default": "None"
+              }
+            ]
+          }
+        },
+        {
+          "name": "scaffold",
+          "parser": {
+            "prog": "okw scaffold",
+            "description": null,
+            "epilog": null,
+            "actions": [
+              {
+                "kind": "_StoreAction",
+                "option_strings": [],
+                "dest": "kind",
+                "nargs": null,
+                "required": true,
+                "metavar": null,
+                "help": "脚手架类型",
+                "default": "None",
+                "choices": [
+                  "deb",
+                  "dput"
+                ]
+              },
+              {
+                "kind": "_StoreAction",
+                "option_strings": [
+                  "--project"
+                ],
+                "dest": "project",
+                "nargs": null,
+                "required": false,
+                "metavar": null,
+                "help": "deb：项目名",
+                "default": "None"
+              },
+              {
+                "kind": "_StoreAction",
+                "option_strings": [
+                  "--series"
+                ],
+                "dest": "series",
+                "nargs": null,
+                "required": false,
+                "metavar": null,
+                "help": "deb：系列代号 yangtze/nile/huanghe（或 1.0/2.0/3.0）",
+                "default": "None"
+              },
+              {
+                "kind": "_StoreAction",
+                "option_strings": [
+                  "--version"
+                ],
+                "dest": "version",
+                "nargs": null,
+                "required": false,
+                "metavar": null,
+                "help": "deb：包版本，如 0.1.0",
+                "default": "None"
+              },
+              {
+                "kind": "_StoreAction",
+                "option_strings": [
+                  "--output-dir"
+                ],
+                "dest": "output_dir",
+                "nargs": null,
+                "required": false,
+                "metavar": null,
+                "help": "deb：目标目录（默认当前目录）",
+                "default": "'.'"
+              },
+              {
+                "kind": "_StoreAction",
+                "option_strings": [
+                  "--openkylin-id"
+                ],
+                "dest": "openkylin_id",
+                "nargs": null,
+                "required": false,
+                "metavar": null,
+                "help": "dput：openKylin 账号 ID",
+                "default": "None"
+              },
+              {
+                "kind": "_StoreAction",
+                "option_strings": [
+                  "--output"
+                ],
+                "dest": "output",
+                "nargs": null,
+                "required": false,
+                "metavar": null,
+                "help": "dput：输出文件路径（默认打印片段）",
+                "default": "None"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ref",
+          "parser": {
+            "prog": "okw ref",
+            "description": null,
+            "epilog": null,
+            "actions": [
+              {
+                "kind": "_StoreAction",
+                "option_strings": [],
+                "dest": "topic",
+                "nargs": "?",
+                "required": false,
+                "metavar": null,
+                "help": "主题：series/wsl-troubleshoot/okbs/verify",
+                "default": "None"
+              }
+            ]
+          }
+        },
+        {
+          "name": "image",
+          "parser": {
+            "prog": "okw image",
+            "description": "两步流程：build 在指定发行版内（root 身份）构建 localhost/openkylin-dev:<tag>（基镜像默认仅本地，构建上下文自动同步到发行版内 /tmp）；verify 验收镜像——本地存在 + 静态探针 + 全量启动健康 + 服务/HTTP，容器操作全程 --pull=never 且使用 G3 运行契约参数。",
+            "epilog": "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；2=用法错误或仅 UNKNOWN。全程禁止隐式拉取（仅 build 的 --pull-base 显式放行基底）。",
+            "actions": [
+              {
+                "kind": "_SubParsersAction",
+                "option_strings": [],
+                "dest": "image_cmd",
+                "nargs": "A...",
+                "required": false,
+                "metavar": "<image_cmd>",
+                "help": null,
+                "default": "None",
+                "subparsers_dest": "image_cmd",
+                "subparsers_metavar": "<image_cmd>",
+                "choice_helps": [
+                  {
+                    "option_strings": [],
+                    "dest": "build",
+                    "metavar": "build",
+                    "help": "在发行版内构建 localhost/openkylin-dev:<tag>（root 身份）"
+                  },
+                  {
+                    "option_strings": [],
+                    "dest": "verify",
+                    "metavar": "verify",
+                    "help": "验收镜像：本地存在 + 静态探针 + 全量启动健康 + 服务/HTTP"
+                  }
+                ],
+                "choices": [
+                  {
+                    "name": "build",
+                    "parser": {
+                      "prog": "okw image build",
+                      "description": "发行版内 root 身份执行：podman 可用性 → 基镜像本地存在（默认禁拉；--pull-base 显式放行）→ 上下文同步（Windows 路径转发行版内 /tmp，或 --context 指定发行版内已有目录）→ podman build --format docker。",
+                      "epilog": "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；2=用法错误或仅 UNKNOWN。全程禁止隐式拉取（仅 build 的 --pull-base 显式放行基底）。",
+                      "actions": [
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [],
+                          "dest": "name",
+                          "nargs": null,
+                          "required": true,
+                          "metavar": null,
+                          "help": "发行版名称（wsl -l -v 查看）",
+                          "default": "None"
+                        },
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [
+                            "--tag"
+                          ],
+                          "dest": "tag",
+                          "nargs": null,
+                          "required": false,
+                          "metavar": null,
+                          "help": "镜像标签（默认 3.0）",
+                          "default": "'3.0'"
+                        },
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [
+                            "--base-image"
+                          ],
+                          "dest": "base_image",
+                          "nargs": null,
+                          "required": false,
+                          "metavar": null,
+                          "help": "基底镜像（默认 localhost/openkylin:3.0，本地导入的 3.0 rootfs）",
+                          "default": "'localhost/openkylin:3.0'"
+                        },
+                        {
+                          "kind": "_StoreTrueAction",
+                          "option_strings": [
+                            "--pull-base"
+                          ],
+                          "dest": "pull_base",
+                          "nargs": 0,
+                          "required": false,
+                          "metavar": null,
+                          "help": "基底镜像本地缺失时显式允许拉取（默认禁止任何隐式拉取）",
+                          "default": "False"
+                        },
+                        {
+                          "kind": "_StoreTrueAction",
+                          "option_strings": [
+                            "--no-cache"
+                          ],
+                          "dest": "no_cache",
+                          "nargs": 0,
+                          "required": false,
+                          "metavar": null,
+                          "help": "构建时禁用层缓存",
+                          "default": "False"
+                        },
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [
+                            "--context"
+                          ],
+                          "dest": "context",
+                          "nargs": null,
+                          "required": false,
+                          "metavar": null,
+                          "help": "构建上下文目录（Windows 绝对路径或发行版内绝对路径；默认包内 openkylin-dev-container/）",
+                          "default": "None"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "verify",
+                    "parser": {
+                      "prog": "okw image verify",
+                      "description": "发行版内 root 身份执行：podman 可用性 → 镜像本地存在（禁拉）→ 静态探针（P1-P8，--entrypoint /bin/bash）→ 后台启动等待 HEALTHCHECK → 服务探针（SSH/Jupyter 进程、22/8888 端口、Jupyter HTTP 200）→ 清理临时容器。--no-boot 时只做静态探针。",
+                      "epilog": "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；2=用法错误或仅 UNKNOWN。全程禁止隐式拉取（仅 build 的 --pull-base 显式放行基底）。",
+                      "actions": [
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [],
+                          "dest": "name",
+                          "nargs": null,
+                          "required": true,
+                          "metavar": null,
+                          "help": "发行版名称",
+                          "default": "None"
+                        },
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [
+                            "--image"
+                          ],
+                          "dest": "image",
+                          "nargs": null,
+                          "required": false,
+                          "metavar": null,
+                          "help": "待验收镜像（默认 localhost/openkylin-dev:3.0）",
+                          "default": "'localhost/openkylin-dev:3.0'"
+                        },
+                        {
+                          "kind": "_StoreTrueAction",
+                          "option_strings": [
+                            "--no-boot"
+                          ],
+                          "dest": "no_boot",
+                          "nargs": 0,
+                          "required": false,
+                          "metavar": null,
+                          "help": "只做静态探针，不启动服务栈",
+                          "default": "False"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "podman",
+          "parser": {
+            "prog": "okw podman",
+            "description": "三步流程：先 preflight 只读探测风险项与缺失，确认无风险后 install --yes 执行安装与 subuid/subgid 映射追加，最后 verify 验收 rootless 上下文；--smoke-image 需本地已存在镜像。",
+            "epilog": "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；2=用法错误、preflight/verify 仅 UNKNOWN，或 install 未提供 --yes（零写入）。",
+            "actions": [
+              {
+                "kind": "_SubParsersAction",
+                "option_strings": [],
+                "dest": "podman_cmd",
+                "nargs": "A...",
+                "required": false,
+                "metavar": "<podman_cmd>",
+                "help": null,
+                "default": "None",
+                "subparsers_dest": "podman_cmd",
+                "subparsers_metavar": "<podman_cmd>",
+                "choice_helps": [
+                  {
+                    "option_strings": [],
+                    "dest": "preflight",
+                    "metavar": "preflight",
+                    "help": "只读预检：发行版/WSL版本/openKylin身份/APT能力/包候选/subuid+subgid映射"
+                  },
+                  {
+                    "option_strings": [],
+                    "dest": "install",
+                    "metavar": "install",
+                    "help": "在目标发行版内安装 4 个直接包 + 追加 subuid/subgid 映射（必须 --yes）"
+                  },
+                  {
+                    "option_strings": [],
+                    "dest": "verify",
+                    "metavar": "verify",
+                    "help": "验收默认用户下 rootless Podman 上下文（默认只读，不跑容器）"
+                  }
+                ],
+                "choices": [
+                  {
+                    "name": "preflight",
+                    "parser": {
+                      "prog": "okw podman preflight",
+                      "description": "只读预检，不触发 apt update、不写文件、不改默认发行版星标。APT 索引缺失时候选标为 UNKNOWN 并给出行动建议；映射已有冲突时 install 阶段将拒绝自动追加。",
+                      "epilog": "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；2=用法错误、preflight/verify 仅 UNKNOWN，或 install 未提供 --yes（零写入）。",
+                      "actions": [
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [],
+                          "dest": "name",
+                          "nargs": null,
+                          "required": true,
+                          "metavar": null,
+                          "help": "发行版名称（wsl -l -v 查看）",
+                          "default": "None"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "install",
+                    "parser": {
+                      "prog": "okw podman install",
+                      "description": "--yes 后将执行：① root 身份 apt update + 复查候选；② 安装 4 个直接包（podman/uidmap/slirp4netns/fuse-overlayfs）；③ 为默认用户追加 subuid/subgid 映射（仅在标准区间 [100000, 165536)    与其它用户无冲突且畸形文件中止时才写入）；④ 最后以默认用户身份运行 rootless verify。漏 --yes 时仅输出 4 条副作用清单并以退出码 2 中止，不做任何写入。不修改软件源、不修改 wsl.conf、不修改默认发行版星标。",
+                      "epilog": "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；2=用法错误、preflight/verify 仅 UNKNOWN，或 install 未提供 --yes（零写入）。",
+                      "actions": [
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [],
+                          "dest": "name",
+                          "nargs": null,
+                          "required": true,
+                          "metavar": null,
+                          "help": "发行版名称",
+                          "default": "None"
+                        },
+                        {
+                          "kind": "_StoreTrueAction",
+                          "option_strings": [
+                            "--yes"
+                          ],
+                          "dest": "yes",
+                          "nargs": 0,
+                          "required": false,
+                          "metavar": null,
+                          "help": "显式确认后才执行副作用：(1) 触发 apt update 刷新 APT 索引；(2) root 安装 4 个直接包（含传递依赖）；(3) 向 /etc/subuid 与 /etc/subgid 追加默认用户映射区间 [100000, 165536) （仅在文件完好、同名无冲突、与其它用户不重叠时才写）；(4) 运行默认用户身份的 rootless verify。",
+                          "default": "False"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "verify",
+                    "parser": {
+                      "prog": "okw podman verify",
+                      "description": "默认用户身份检查：subuid/subgid 映射、unshare 是否可用、podman info --rootless。默认只读不创建/启动容器；--smoke-image 需本地已存在该镜像，不触发隐式拉取。",
+                      "epilog": "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；2=用法错误、preflight/verify 仅 UNKNOWN，或 install 未提供 --yes（零写入）。",
+                      "actions": [
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [],
+                          "dest": "name",
+                          "nargs": null,
+                          "required": true,
+                          "metavar": null,
+                          "help": "发行版名称",
+                          "default": "None"
+                        },
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [
+                            "--smoke-image"
+                          ],
+                          "dest": "smoke_image",
+                          "nargs": null,
+                          "required": false,
+                          "metavar": "LOCAL_IMAGE",
+                          "help": "存在本地的可用镜像名（REPOSITORY:TAG / 镜像 ID），若不存在将直接 FAIL 并提示先在发行版内 podman pull / podman load；严禁触发任何隐式 registry 拉取。",
+                          "default": "None"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

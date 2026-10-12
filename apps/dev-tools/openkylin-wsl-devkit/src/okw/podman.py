@@ -354,12 +354,8 @@ def format_preflight(report: PreflightReport) -> str:
     return "\n".join(lines)
 
 
-def cmd_preflight(args) -> int:
-    """CLI 入口：okw podman preflight <发行版>。"""
-    name = args.name
-    report = preflight_check(name)
-    print(format_preflight(report))
-    return report.exit_code()
+# CLI handler（cmd_preflight）已迁至 okw.commands.podman_cmds；
+# 本模块底部 PEP 562 __getattr__ 保留 podman.cmd_preflight 旧路径别名。
 
 
 # ----------------- 安装 -----------------
@@ -878,17 +874,8 @@ def format_install(report: InstallReport) -> str:
     return "\n".join(lines)
 
 
-def cmd_install(args) -> int:
-    """CLI 入口：okw podman install <发行版> [--yes]。"""
-    name = args.name
-    yes = getattr(args, "yes", False)
-    if not yes:
-        report = InstallReport(distro_name=name, missing_yes=True)
-        print(format_install(report))
-        return report.exit_code()
-    report = install_run(name, yes=True)
-    print(format_install(report))
-    return report.exit_code()
+# CLI handler（cmd_install）已迁至 okw.commands.podman_cmds；
+# 本模块底部 PEP 562 __getattr__ 保留 podman.cmd_install 旧路径别名。
 
 
 # ----------------- 验收（只读；冒烟仅用本地镜像，禁止拉取） -----------------
@@ -1102,9 +1089,22 @@ def format_verify(report: VerifyReport) -> str:
     return "\n".join(lines)
 
 
-def cmd_verify(args) -> int:
-    """CLI 入口：okw podman verify <发行版> [--smoke-image LOCAL_IMAGE]。"""
-    smoke_image = getattr(args, "smoke_image", None)
-    report = verify_run(args.name, smoke_image=smoke_image)
-    print(format_verify(report))
-    return report.exit_code()
+# CLI handler（cmd_verify）已迁至 okw.commands.podman_cmds；
+# 下方 PEP 562 __getattr__ 保留 podman.cmd_verify 旧路径别名。
+
+def __getattr__(name):
+    """兼容别名：旧调用路径 podman.cmd_preflight/cmd_install/cmd_verify。
+
+    新代码一律从 ``okw.commands.COMMAND_HANDLERS`` 取 handler；惰性导入
+    commands 包以避免与 commands.podman_cmds（其导入本模块）形成循环。
+    """
+    from okw.commands import podman_cmds
+
+    aliases = {
+        "cmd_preflight": podman_cmds.cmd_preflight,
+        "cmd_install": podman_cmds.cmd_install,
+        "cmd_verify": podman_cmds.cmd_verify,
+    }
+    if name in aliases:
+        return aliases[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

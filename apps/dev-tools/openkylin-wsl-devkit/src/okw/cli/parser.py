@@ -1,153 +1,16 @@
-"""okw CLI：argparse 装配。
+"""okw CLI 的 argparse 装配（纯函数层）。
 
-子命令：list / status / import / export / unregister / exec / verify / scaffold / ref / podman / image。
+职责边界：本模块只描述命令面，不读 argv、不做 IO、不触子进程；
+``build_parser()`` 可被快照测试反复调用。子组空命令的帮助回打通过装配期
+``set_defaults`` 绑定该子 parser 自身的 ``print_help`` 闭包实现，
+不依赖 argparse 任何下划线私有属性（由 test_no_private_argparse_api
+逐字符串门禁保护）。
 """
 
 import argparse
-import sys
 
-from okw import __version__, distro, image, podman, ref, scaffold, verify
+from okw import __version__, distro, image
 
-
-def _print(text: str = "") -> None:
-    print(text)
-
-def cmd_list(_args) -> int:
-    try:
-        distros = distro.list_distros()
-    except distro.WslError as exc:
-        print(f"错误：{exc}", file=sys.stderr)
-        return 1
-    if not distros:
-        print("未发现任何 WSL 发行版（wsl --import 导入 openKylin 后重试）")
-        return 0
-    print(f"共 {len(distros)} 个 WSL 发行版：")
-    for d in distros:
-        star = "*" if d.is_default else " "
-        print(f"  {star} {d.name:<24} WSL{d.version:<3} {d.state}")
-    default = distro.default_distro_name()
-    if default:
-        print(f"默认发行版（星标保护）：{default}")
-    return 0
-
-def cmd_status(args) -> int:
-    try:
-        d = distro.get_distro(args.name)
-    except distro.WslError as exc:
-        print(f"错误：{exc}", file=sys.stderr)
-        return 1
-    if d is None:
-        print(f"发行版 {args.name} 不存在（wsl -l -v 查看在列发行版）", file=sys.stderr)
-        return 1
-    star = "（默认）" if d.is_default else ""
-    print(f"{d.name}: WSL{d.version} / {d.state} {star}")
-    return 0
-
-def cmd_import(args) -> int:
-    try:
-        res = distro.import_distro(args.image, args.name, args.location, args.version)
-    except distro.WslError as exc:
-        print(f"错误：{exc}", file=sys.stderr)
-        return 1
-    if not res.ok:
-        print("导入失败，按知识库 §4 排障三问排查：", file=sys.stderr)
-        print("  1) 失败位置是否漂移（镜像位置/导入目录发生变化）→ 固定位置重试", file=sys.stderr)
-        print("  2) 空闲内存是否不足（0.8GB 失败 / 4.5GB 成功）→ wsl --shutdown 后重试", file=sys.stderr)
-        print("  3) 仍失败：把 .wsl 解压为纯 tar 再 import", file=sys.stderr)
-        if res.stderr.strip():
-            print(f"  原始错误：{res.stderr.strip()[:300]}", file=sys.stderr)
-        return res.exit_code or 1
-    print(f"导入成功：{args.name}（{args.location}）")
-    print("提示：默认账号 openkylin/openkylin 为弱口令，首次进入请立即 passwd；", file=sys.stderr)
-    print("      桌面版镜像请用 xrdp 连接 3390 端口（知识库 wsl-dual-image-selection）。")
-    return 0
-
-def cmd_export(args) -> int:
-    res = distro.export_distro(args.name, args.output)
-    if not res.ok:
-        print(f"导出失败：{res.stderr.strip() or f'exit={res.exit_code}'}", file=sys.stderr)
-        return res.exit_code or 1
-    print(f"已导出：{args.output}")
-    return 0
-
-def cmd_unregister(args) -> int:
-    res = distro.unregister_distro(args.name, yes=args.yes)
-    if not res.ok:
-        print(f"已拒绝：{res.stderr.strip()}", file=sys.stderr)
-        return res.exit_code or 1
-    print(f"已注销：{args.name}")
-    return 0
-
-def cmd_exec(args) -> int:
-    cmd = list(args.cmd)
-    if cmd and cmd[0] == "--":
-        cmd = cmd[1:]
-    if not cmd:
-        print("exec 需要命令：okw exec <name> -- <cmd>", file=sys.stderr)
-        return 2
-    res = distro.exec_distro(args.name, cmd)
-    if not res.ok:
-        print(f"执行失败：{res.stderr.strip() or f'exit={res.exit_code}'}", file=sys.stderr)
-        return res.exit_code or 1
-    if res.stdout:
-        print(res.stdout.rstrip("\n"))
-    if res.stderr:
-        print(res.stderr.rstrip("\n"), file=sys.stderr)
-    return 0
-
-def cmd_verify(args) -> int:
-    try:
-        default_before = distro.default_distro_name()
-        report = verify.verify(args.name, default_before=default_before)
-    except distro.WslError as exc:
-        print(f"错误：{exc}", file=sys.stderr)
-        return 1
-    print(verify.format_report(report))
-    return 0 if report.all_passed else 1
-
-def cmd_scaffold(args) -> int:
-    if args.kind == "deb":
-        try:
-            files = scaffold.scaffold_deb(args.project, args.series, args.version, args.output_dir)
-        except scaffold.ScaffoldError as exc:
-            print(f"错误：{exc}", file=sys.stderr)
-            return 1
-        print(f"已生成 debian/ 打包骨架（{len(files)} 个文件）：")
-        for f in files:
-            print(f"  - {f}")
-        print("下一步：编辑 control/changelog → 源码放入项目根 → dpkg-buildpackage -us -uc")
-        return 0
-    if args.kind == "dput":
-        try:
-            text, written = scaffold.scaffold_dput(args.openkylin_id, output=args.output)
-        except scaffold.ScaffoldError as exc:
-            print(f"错误：{exc}", file=sys.stderr)
-            return 1
-        if written:
-            print(f"已写入：{written}")
-        else:
-            print("配置片段（可重定向到 ~/.dput.cf 或追加）：")
-            print(text, end="")
-        print("用法：dput okbs:~<你的ID>/ppa <source.changes>（需安装 paramiko / dput-ng）")
-        return 0
-    print(f"未知 scaffold 类型：{args.kind}", file=sys.stderr)
-    return 2
-
-def cmd_ref(args) -> int:
-    if args.topic:
-        topic = ref.get_topic(args.topic)
-        if topic is None:
-            print(f"未知主题：{args.topic}。可用：{', '.join(ref.list_topics())}", file=sys.stderr)
-            return 2
-        print(ref.format_topic(topic))
-        return 0
-    print("== openKylin 知识库参考主题 ==")
-    for name in ref.list_topics():
-        topic = ref.get_topic(name)
-        assert topic is not None
-        print(f"  - {name:<16} {topic.title}")
-    print("用法：okw ref <主题>（如 okw ref series）")
-    return 0
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -210,6 +73,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=image_epilog,
     )
+    # 装配期闭包：`okw image` 无子命令时回打本子组帮助（退出码在 main 中给 2）。
+    # 注意：argparse 会把该默认传播给 image 组下叶子命令的 Namespace；
+    # 仅 main 在「无叶子」分支使用，handler 一律不得读取 _group_help。
+    p_image.set_defaults(_group_help=p_image.print_help)
     p_image_sub = p_image.add_subparsers(dest="image_cmd", metavar="<image_cmd>")
 
     p_img_build = p_image_sub.add_parser(
@@ -270,6 +137,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=podman_epilog,
     )
+    # 装配期闭包：`okw podman` 无子命令时回打本子组帮助（退出码在 main 中给 2）。
+    # 注意：argparse 会把该默认传播给 podman 组下叶子命令的 Namespace；
+    # 仅 main 在「无叶子」分支使用，handler 一律不得读取 _group_help。
+    p_podman.set_defaults(_group_help=p_podman.print_help)
     p_podman_sub = p_podman.add_subparsers(dest="podman_cmd", metavar="<podman_cmd>")
 
     p_preflight = p_podman_sub.add_parser(
@@ -311,7 +182,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    p_verify = p_podman_sub.add_parser(
+    p_verify_podman = p_podman_sub.add_parser(
         "verify",
         help="验收默认用户下 rootless Podman 上下文（默认只读，不跑容器）",
         description=(
@@ -320,8 +191,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=podman_epilog,
     )
-    p_verify.add_argument("name", help="发行版名称")
-    p_verify.add_argument(
+    p_verify_podman.add_argument("name", help="发行版名称")
+    p_verify_podman.add_argument(
         "--smoke-image",
         metavar="LOCAL_IMAGE",
         help=(
@@ -332,72 +203,3 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
-
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if args.command is None:
-        parser.print_help()
-        return 2
-
-    if args.command == "list":
-        return cmd_list(args)
-    if args.command == "status":
-        return cmd_status(args)
-    if args.command == "import":
-        return cmd_import(args)
-    if args.command == "export":
-        return cmd_export(args)
-    if args.command == "unregister":
-        return cmd_unregister(args)
-    if args.command == "exec":
-        return cmd_exec(args)
-    if args.command == "verify":
-        return cmd_verify(args)
-    if args.command == "scaffold":
-        return cmd_scaffold(args)
-    if args.command == "ref":
-        return cmd_ref(args)
-    if args.command == "podman":
-        if not args.podman_cmd:
-            subparsers_action = next(
-                a for a in parser._subparsers._group_actions if a.dest == "command"
-            )
-            podman_parser = subparsers_action._name_parser_map["podman"]
-            podman_parser.print_help()
-            return 2
-        if args.podman_cmd == "preflight":
-            return podman.cmd_preflight(args)
-        if args.podman_cmd == "install":
-            return podman.cmd_install(args)
-        if args.podman_cmd == "verify":
-            return podman.cmd_verify(args)
-        subparsers_action = next(
-            a for a in parser._subparsers._group_actions if a.dest == "command"
-        )
-        podman_parser = subparsers_action._name_parser_map["podman"]
-        podman_parser.print_help()
-        return 2
-    if args.command == "image":
-        if not args.image_cmd:
-            subparsers_action = next(
-                a for a in parser._subparsers._group_actions if a.dest == "command"
-            )
-            image_parser = subparsers_action._name_parser_map["image"]
-            image_parser.print_help()
-            return 2
-        if args.image_cmd == "build":
-            return image.cmd_build(args)
-        if args.image_cmd == "verify":
-            return image.cmd_verify(args)
-        subparsers_action = next(
-            a for a in parser._subparsers._group_actions if a.dest == "command"
-        )
-        image_parser = subparsers_action._name_parser_map["image"]
-        image_parser.print_help()
-        return 2
-    parser.print_help()
-    return 2
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -7,6 +7,8 @@
 
 from pathlib import Path
 
+from okw.errors import OkwError
+
 SERIES_ALIASES: dict[str, str] = {
     "1.0": "yangtze",
     "yangtze": "yangtze",
@@ -18,7 +20,7 @@ SERIES_ALIASES: dict[str, str] = {
 
 OKBS_FQDN = "upload.build.openkylin.top:2121"
 
-class ScaffoldError(Exception):
+class ScaffoldError(OkwError):
     """受控脚手架错误。"""
 
 def scaffold_deb(project: str, series: str, version: str, target_dir: str | Path) -> list[Path]:

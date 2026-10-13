@@ -28,6 +28,7 @@ services:
       args:
         BASE_IMAGE: ${BASE_IMAGE:-localhost/jupyter-podman-rootless:latest}
         PIP_MIRROR: ${PIP_MIRROR:-official}
+        APT_MIRROR: ${APT_MIRROR:-official}
     ports:
       - "${MONETIZE_SSH_PORT:-2224}:22"
       - "${MONETIZE_JUPYTER_PORT:-8892}:8888"

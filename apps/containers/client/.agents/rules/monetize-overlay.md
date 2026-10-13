@@ -128,3 +128,9 @@ volumes 长短语法差异）见
   native_lib 过滤，否则会覆盖平台默认得到空路径。
 - **裸 compose 相对 source 副产物**：与 native 同族（G1）；invoke 绝对
   路径不产生。
+- **tuna apt 源对 Ubuntu 26.04(resolute) 403（2026-10-13 实测）**：基底镜像
+  ubuntu.sources 钉死 tuna，resolute pool 大面积 403 致 Layer 1 clang 安装
+  失败（与 pip 源无关）。对策：Containerfile 支持 `APT_MIRROR` build-arg
+  （official 默认零回归；aliyun/tuna 构建期 sed 换源），经 StackSpec
+  `apt_mirror=True` 开关透传——**无 CLI 旗标**，只在 shell/.env 设
+  `APT_MIRROR=aliyun`（C15 同序，build / up 内联 / compose 三处同键）。

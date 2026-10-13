@@ -215,6 +215,7 @@ class StackSpec:
     gpu_override: bool = False  # 存在 compose.gpu.yaml 且 up/smoke 暴露 --gpu（quant/native）
     gpu_device_env: str = ""  # GPU 设备插值键（空=不插值，设备项写死；quant/native 均为 GPU_DEVICE）
     conda_mirror: bool = False  # build 暴露 --conda-mirror / CONDA_MIRROR（native）
+    apt_mirror: bool = False  # build 透传 APT_MIRROR build-arg（monetize；仅 .env/shell，无 CLI 旗标）
     torch_flavor: bool = False  # build 暴露 --torch / TORCH_FLAVOR（native；空|cpu|cu130）
     auto_shortflags: bool = False  # invoke 自动短选项（quant 历史为默认开启）
 
@@ -581,6 +582,12 @@ def resolve_build_args(
             or os.environ.get("CONDA_MIRROR")
             or env.get("CONDA_MIRROR")
             or "official"
+        )
+    if spec.apt_mirror:
+        # 无 CLI 旗标：shell export > .env > official（C15 同序；跨 build/up/compose
+        # 三处一致写 .env）。Containerfile 侧默认 official=不换源，零回归。
+        args["apt_mirror"] = str(
+            os.environ.get("APT_MIRROR") or env.get("APT_MIRROR") or "official"
         )
     if spec.torch_flavor:
         flavor = str(
@@ -1434,6 +1441,10 @@ def build_image(
     if spec.conda_mirror:
         parts.append(
             f"--build-arg CONDA_MIRROR={shlex.quote(args.get('conda_mirror') or 'official')}"
+        )
+    if spec.apt_mirror:
+        parts.append(
+            f"--build-arg APT_MIRROR={shlex.quote(args.get('apt_mirror') or 'official')}"
         )
     if spec.torch_flavor:
         parts.append(

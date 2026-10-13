@@ -33,6 +33,7 @@
 pip install -e ".[compose]"          # 一次性（WSL2/Linux/macOS）
 
 invoke monetize.build --pip-mirror aliyun
+# apt 遇 tuna 403（Ubuntu 26.04 pool）：.env 写 APT_MIRROR=aliyun（仅 .env/shell 生效）
 invoke monetize.up --skip-build       # 直接用上一步的镜像（up 恒 --no-build，C16；缺失即 fail-fast）
 invoke monetize.ps
 invoke monetize.build-native         # clang++ → native/build/score_opportunity.so
@@ -71,6 +72,7 @@ podman-compose down
 | MONETIZE_SRC_PATH | ../../../../agent-monetize | agent-monetize 源码宿主路径（invoke 存在性硬校验） |
 | USER_PASSWORD / JUPYTER_TOKEN / SSH_PUBLIC_KEY / GRANT_SUDO | 空/空/空/yes | 凭证 |
 | PIP_MIRROR | official | pip 源；**无前缀构建参数单一事实源（C15）**，`invoke monetize.build` / `up` 内联 build / compose 段三处同键，`--pip-mirror` 只覆盖单次 build |
+| APT_MIRROR | official | apt 源（**无 CLI 旗标**，仅 shell/.env）：official=沿用基底内置源；aliyun/tuna=构建期替换 ubuntu.sources。tuna 对 Ubuntu 26.04(resolute) pool 实测 403，遇错改 aliyun |
 | BASE_IMAGE（注释态） | rootless latest | 基底覆盖（同样被 invoke build/up 读取，C15） |
 
 ## 与相关栈的关系

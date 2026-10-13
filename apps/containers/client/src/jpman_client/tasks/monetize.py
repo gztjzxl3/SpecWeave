@@ -59,6 +59,7 @@ MONETIZE_SPEC = StackSpec(
     jupyter_default="8892",
     gpu_override=False,
     conda_mirror=False,
+    apt_mirror=True,
     auto_shortflags=False,
     source_mounts=(
         SourceMount("MONETIZE_SRC_PATH", "apps/agent-monetize", "agent-monetize 源码树"),

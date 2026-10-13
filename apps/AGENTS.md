@@ -52,6 +52,7 @@ apps/AGENTS.md 由 SpecWeave 主权区维护，直接纳入版本管理；部分
 | docker-images/ | caffe-ffi-cross | —（遵循根规范） | ❌ 无 | Caffe-FFI 交叉编译（macOS/Windows 交叉构建镜像） |
 | docker-images/ | xmnn-runtime | —（遵循根规范） | ❌ 无 | XMNN 运行时环境 |
 | ai-agents/ | zhujian-wudao | [ai-agents/zhujian-wudao/AGENTS.md](ai-agents/zhujian-wudao/AGENTS.md) | ✅ 有 | 竹简悟道——道家哲学AI洞察项目 |
+| ai-agents/ | boss-manual | [ai-agents/boss-manual/AGENTS.md](ai-agents/boss-manual/AGENTS.md) | ✅ 有 | 老板说明书——AI 人格上下文应用（身份称呼/写作前人格校准/判断边界/脱敏个人故事；私域知识库脱敏同步，含 sync-protocol 增量同步协议与脱敏检查清单） |
 | ai-agents/ | eve-minimal-agent | —（遵循根规范） | ❌ 无 | Vercel Eve 最小可运行 Agent 示例 |
 | ai-agents/ | ai-code-assistant | —（遵循根规范） | ❌ 无 | AI 代码助手 Web 应用 |
 | dev-tools/ | camera-power-controller | —（遵循根规范） | ❌ 无 | 摄像头电源控制工具 |
@@ -84,7 +85,8 @@ SpecWeave 根 AGENTS.md
             ├─ pytorch-base/AGENTS.md（pytorch-base 应用入口 · 嵌套优先）
             └─ caffe-ffi-jupyter/AGENTS.md（caffe-ffi-jupyter 应用入口 · 嵌套优先）
        └─ ai-agents/（AI 应用类分组）
-            └─ zhujian-wudao/AGENTS.md（zhujian-wudao 应用入口 · 嵌套优先）
+            ├─ zhujian-wudao/AGENTS.md（zhujian-wudao 应用入口 · 嵌套优先）
+            └─ boss-manual/AGENTS.md（boss-manual 应用入口 · 嵌套优先 · persona 人格资产 + .agents/rules/sync-protocol.md 增量同步协议）
 ```
 
 进入任意子目录后，优先读取**离当前工作目录最近**的 AGENTS.md。若应用自身的 AGENTS.md 规则与本文件冲突，以应用的 AGENTS.md 为准（子层覆盖父层）。无自身 AGENTS.md 的应用直接遵循根 .agents/ 规范。
@@ -249,6 +251,9 @@ apps 区域内有 `.agents/` 目录的应用，其规范资产可被跨应用调
 | apps/ai-agents/zhujian-wudao/ | 应用自治（有自身 AGENTS.md） | ✅ 是 | 竹简悟道项目 |
 | apps/ai-agents/zhujian-wudao/AGENTS.md | 应用自治 | ✅ 是 | zhujian-wudao 入口 |
 | apps/ai-agents/zhujian-wudao/.agents/ | 应用自治 | ✅ 是 | zhujian-wudao 规范体系 |
+| apps/ai-agents/boss-manual/ | 应用自治（有自身 AGENTS.md） | ✅ 是 | 老板说明书——AI 人格上下文应用（私域知识库脱敏同步的人格资产：身份/校准/边界/故事） |
+| apps/ai-agents/boss-manual/AGENTS.md | 应用自治 | ✅ 是 | boss-manual 入口 |
+| apps/ai-agents/boss-manual/.agents/ | 应用自治 | ✅ 是 | boss-manual 规范体系（sync-protocol 增量同步协议） |
 | apps/ai-agents/ai-code-assistant/ | 应用自治（遵循根规范） | ✅ 是 | AI 代码助手应用 |
 | apps/ai-agents/eve-minimal-agent/ | 应用自治（遵循根规范） | ✅ 是 | Vercel Eve 最小可运行 Agent 示例 |
 | apps/dev-tools/camera-power-controller/ | 应用自治（遵循根规范） | ✅ 是 | 摄像头电源控制工具 |

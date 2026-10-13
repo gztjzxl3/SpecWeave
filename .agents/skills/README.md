@@ -34,7 +34,7 @@ title: ".agents/skills/ 目录索引"
 | token-optimize-cmd | 命令门面 | Token优化 | Token优化、降本、成本优化、缓存命中率、上下文压缩、Prompt优化、LLM成本 | [token-optimize-cmd/SKILL.md](token-optimize-cmd/SKILL.md) |
 | sovereign-rollout-cmd | 命令门面 | 主权区治理资产落盘 | 提案、批准落盘、主权区变更、治理资产落盘、先提案后批准 | [sovereign-rollout-cmd/SKILL.md](sovereign-rollout-cmd/SKILL.md) |
 
-### 完整Skill（6个）
+### 完整Skill（7个）
 
 | Skill名称 | 类型 | 功能描述 | 核心触发词 | SKILL.md路径 |
 |-----------|------|---------|-----------|-------------|
@@ -44,6 +44,7 @@ title: ".agents/skills/ 目录索引"
 | trae-computer-use-ptc | 完整Skill | Computer Use Windows 桌面应用 UI 自动化指南（本地 MCP）：list_apps/get_app_state/click/scroll/type_text 等操作，Electron/桌面应用场景，高风险操作前须确认；import-builtin-skills 时既有同名保留未覆盖的本地 v1.2.0 | Computer Use、电脑操作、UI自动化、桌面交互、操作应用 | [trae-computer-use-ptc/SKILL.md](trae-computer-use-ptc/SKILL.md) |
 | client-overlay-scaffold | 完整Skill | apps/containers/client/overlays/ 工作负载叠加栈脚手架（v1.1）：形态 A/B 决策树 + 声明式 StackSpec（make_stack_tasks 六任务工厂，栈模块零生命周期代码）+ compose extends `_shared/base-rootless.yaml` 基段（三必需/凭证/bridge 单一事实源）；compose/namespace/.env 三套骨架模板 + 12 件套清单 + 7 接线登记点（含 test_tasks_surface/test_compose_merge 两张黄金表）+ G1~G15 实测踩坑 + 四级验证链；源自 quant/xmnn/monetize 三栈与两轮独立审查 | 新增 client 叠加层、工作负载栈、新 compose invoke 命名空间、照 onnx/xmnn/monetize 栈再做一个、overlay 脚手架 | [client-overlay-scaffold/SKILL.md](client-overlay-scaffold/SKILL.md) |
 | collect-api-decouple-cmd | 完整Skill | 硬件/设备采集类 API 的"采集-解析分离 + 日志复用"重构执行卡：副作用边界切分（触网/写盘 vs 纯本地计算）、dataclass 阶段契约、`run_<step>=True` 开关逐层贯通、复用分支纯路径推导并规避 rmtree/unlink 清理型工厂、产物缺失同源报错、缩放参数一致性警示；含 I→F→A→V 步骤模板、安全检查清单、Gotchas 与 npuusertools 双案例 | 推理和后处理分开、采集/推理变成可选、已经推理过了复用日志、跳过设备执行、重放日志、只重新算指标 | [collect-api-decouple-cmd/SKILL.md](collect-api-decouple-cmd/SKILL.md) |
+| personal-kb-navigator | 完整Skill | 个人 AI 知识库（根说明 + 主题库 + 回源区）的取材/核对/整理/沉淀导航器：取材决策树（9 分支）+ 三条沉淀铁律 + 收件箱→分流漏斗 + 写入安全清单（13 项，含预览/幂等/验证）；`KB_ROOT` 三级解析（用户给定 → 环境变量 `PERSONAL_KB_ROOT` → 询问），以「七库一说明」为示例实例 | 个人知识库、我的知识库、调用地图、总入口、收件箱、老板说明书、产品事实表、客户需求库、素材调用地图、方法论库、写文章调用地图、处理一条念头、找素材、沉淀素材卡、核对产品价格、整理大文档、客户信息脱敏 | [personal-kb-navigator/SKILL.md](personal-kb-navigator/SKILL.md) |
 
 ### 工作流门面（3个）
 

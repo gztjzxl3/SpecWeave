@@ -7,7 +7,7 @@ x-toml-ref: "../../.meta/toml/.agents/capability-registry/02-skills.toml"
 # Skill索引
 
 
-### 完整Skill（5个）
+### 完整Skill（6个）
 
 | Skill名 | 触发词 | 方案数 | 版本 | 路径 |
 |---------|--------|-------|------|------|
@@ -16,6 +16,7 @@ x-toml-ref: "../../.meta/toml/.agents/capability-registry/02-skills.toml"
 | git-commit-helper | "提交"、"commit"、"原子提交"、"代码提交"、"提交变更"、"git commit"、"保存更改" | 1（内置validate_commit.py脚本，三查暂存法） | v1.1.0 | [skills/git-commit-helper/SKILL.md](../skills/git-commit-helper/SKILL.md) |
 | client-overlay-scaffold | "新增/创建 client 叠加层"、"工作负载栈"、"新 invoke 命名空间 compose 栈"、"照 onnx-quantized/xmnn-dev/agent-monetize-dev 再做一个"、"overlay 脚手架" | 2（形态 A 运行时依赖栈 / 形态 B 工具链挂载栈；v1.1 起声明式 StackSpec + extends rootless-base 基段，compose/namespace/.env 三套骨架模板 + 交付清单 + 两张测试黄金表） | v1.1.0 | [skills/client-overlay-scaffold/SKILL.md](../skills/client-overlay-scaffold/SKILL.md) |
 | collect-api-decouple-cmd | "推理和后处理分开"、"采集/推理变成可选"、"已经推理过了复用日志"、"跳过设备执行"、"重放日志"、"只重新算指标" | 1（副作用边界切分 + dataclass 阶段契约 + run_<step> 开关逐层贯通 + 复用分支规避清理型工厂，I→F→A→V 执行卡） | v1.0.0 | [skills/collect-api-decouple-cmd/SKILL.md](../skills/collect-api-decouple-cmd/SKILL.md) |
+| personal-kb-navigator | "个人知识库"、"我的知识库"、"调用地图"、"总入口"、"收件箱"、"老板说明书"、"产品事实表"、"素材调用地图"、"写文章调用地图"、"处理一条念头"、"沉淀素材卡"、"核对产品价格"、"整理大文档"、"客户信息脱敏" | 1（取材决策树 9 分支 + 三条沉淀铁律 + 收件箱漏斗 + 13 项写入安全清单；`KB_ROOT` 三级解析，以「七库一说明」为示例实例） | v1.0.0 | [skills/personal-kb-navigator/SKILL.md](../skills/personal-kb-navigator/SKILL.md) |
 
 ### 工作流门面（3个）
 

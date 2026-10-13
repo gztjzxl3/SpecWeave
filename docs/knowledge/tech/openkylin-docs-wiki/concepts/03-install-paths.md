@@ -22,9 +22,24 @@
 1. 环境门槛：Windows 10 2004（内部版本 19041）+ 或 Windows 11；管理员 PowerShell；
 2. `wsl --install` 与 `wsl --set-default-version 2`；
 3. 从官网下载两个镜像之一：基础 `openKylin-3.0-wsl-amd64.wsl`、桌面 `openKylin-3.0-desktop-wsl-amd64.wsl`；
-4. `wsl --import openKylin .\openKylin <镜像文件> --version 2` 导入；
-5. `wsl -d openKylin` 启动，**预置用户名与密码均为 `openkylin`**；
+4. 导入发行版：本仓推荐用 `okw import`（两个镜像的命令见下，封装镜像 gzip 头校验、`WSL_UTF8=1`、wsl.exe 全路径回退与 600 秒超时，失败时打印中文分诊）；不装工具可用官方原命令 `wsl --import <名称> <安装目录> <镜像文件> --version 2`；
+5. `wsl -d <名称>` 启动（名称即导入时的 `--name`），**预置用户名与密码均为 `openkylin`**；
 6. 桌面版另需：启动后 `ip addr show eth0` 取内网 IPv4 → Windows 远程桌面连接 `<IP>:3390` → Session 选 **xorg**，账号密码同为 openkylin。WSL 重启后 IP 可能变。
+
+**两个镜像的导入命令（本仓 okw，命令面于 2026-10-13 对照源码核对）**：
+
+```powershell
+# 一次性安装 okw：仓库内零运行时依赖工具（要求 Windows + Python ≥ 3.10）
+python -m pip install -e apps\dev-tools\openkylin-wsl-devkit
+
+# 基础镜像（下载约 336 MiB，VHD 预留 1.3 GB 以上）
+okw import .\openKylin-3.0-wsl-amd64.wsl --name openKylin-3.0 --location D:\WSL\openKylin-3.0
+
+# 桌面镜像（下载 6.14 GiB，磁盘余量按 §3.1 决策表预留）；与基础镜像并存时名称必须不同
+okw import .\openKylin-3.0-desktop-wsl-amd64.wsl --name openKylin-3.0-desktop --location D:\WSL\openKylin-3.0-desktop
+```
+
+边界说明：`okw import` 只封装导入动作——镜像仍须按步骤 3 从官网下载，不自动解压、不自动重试；低内存下 `RegisterDistro/E_UNEXPECTED`、`CreateVm/E_ABORT` 的处置仍见下文实测要点与[实操指南](../references/wsl-install-sparse-vhd-guide.md)。导入后可用 `okw list` 核对发行版、`okw verify <名称>` 执行五步环境验收；完整命令面见 [okw 使用指南](../../../../tech/guides/openkylin-wsl-devkit/index.md)。
 
 > **体积预期（最小镜像，本机实测口径，S26）**：基础镜像下载文件约 336M，但它是 **gzip 压缩的 tar**（文件头 `1F 8B`），导入时 WSL 会解压为约 1.1G 量级的 VHD 虚拟磁盘，故磁盘预留应按 1.1G 以上而非 336M 规划；安装额外软件后 VHD 还会增长。336M 为 2026-09-29 时点 3.0 镜像的实测值，具体以官网下载页当时文件大小为准。
 

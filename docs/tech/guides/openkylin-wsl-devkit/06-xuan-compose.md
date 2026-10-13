@@ -84,6 +84,28 @@ git+https://github.com/xinetzone/xuanspace.git#subdirectory=libs/xuan-compose
 
 > 该 VCS 写法需要你对 `xinetzone/xuanspace` 仓库具有访问权限，且**未在本指南的实机流程中验证**；网络受限制时同样适用后文的镜像/代理手段。请以本地源码目录为准。
 
+## 安装形态：拷贝安装与可编辑安装（`--editable`）
+
+本地源支持两种安装形态，实机（openKylin-3.0）均通过 `preflight` / `install` / `verify --smoke` 全链路验证：
+
+| 形态 | 命令 | 包装落点 | 适用场景 |
+|---|---|---|---|
+| 拷贝安装（默认） | `install --source <本地目录>` | uv 把安装时刻的源码快照装入 tool 隔离环境（`~/.local/share/uv/tools/xuan-compose`），此后源码目录的改动不影响已装工具 | 固定使用、与日常运行环境一致 |
+| 可编辑安装 | `install --editable --source <本地目录>` | 不在隔离环境放包体副本，由 scikit-build-core 的 editable finder（site-packages 内 `_editable_skbc_xuan_compose.pth`/`.py`）把导入路径直接指向源码目录的 `src/` | 在源码树上开发调试 xuan-compose |
+
+可编辑形态实测：tool 解释器内 `xuan_compose.__file__` 解析到源码树而非隔离环境，例如源在 `D:\AI\projects\xuanspace\libs\xuan-compose` 时解析为 `/mnt/d/AI/projects/xuanspace/libs/xuan-compose/src/xuan_compose/__init__.py`，模块导入非空、`xc`/`xuan-compose` 双 shim 版本一致。因此在 Windows 侧修改源码后，**重新执行一次 `xc` 命令即按源码树加载新代码**（每次进程启动重新解析导入路径；`xc` 是短命命令而非常驻守护进程，不存在自动热重载）。
+
+monorepo 边界：editable finder 只挂载 `libs/xuan-compose/src` 这一条映射，不会把 monorepo 根枢纽包卷进来；xuan-compose 的运行时依赖仅为 `python-dotenv` 与 `pyyaml`。在发行版内可用以下命令自行核对当前究竟是哪种形态（默认用户身份）：
+
+```bash
+~/.local/share/uv/tools/xuan-compose/bin/python -c \
+  "import xuan_compose; print(xuan_compose.__file__, xuan_compose.__version__)"
+# 拷贝形态：__file__ 位于 .../uv/tools/xuan-compose/lib/python3.14/site-packages/ 下
+# 可编辑形态：__file__ 位于源码目录的 src/xuan_compose/__init__.py
+```
+
+两种形态相互切换只需重跑 `install`（已登记时 uv 自动 `--force` 幂等重装）：开发时加 `--editable`，回到与日常运行一致的隔离形态时去掉它再装一次即可。
+
 ## compose 冒烟（`--smoke`）
 
 `verify --smoke` 不是容器冒烟，而是 **xc ↔ Podman 的配置解析探活**：
@@ -91,7 +113,8 @@ git+https://github.com/xinetzone/xuanspace.git#subdirectory=libs/xuan-compose
 1. 前置检查任一为 FAIL 则不执行冒烟，直接报告“前置检查存在 FAIL”；
 2. 在 `/tmp/okw-smoke-XXXXXXXX` 创建隔离临时目录，`trap` 保证结束即清理；
 3. 写入内容为 `services: {}` 的最小 `compose.yaml`，执行 `xc config --quiet`；
-4. xc 在配置解析阶段会探测 Podman 版本并触达 `podman info`，因此能验证整条链路，但**不 `up`/`down`、不起容器、不拉镜像**（脚本中禁止任何 pull 动作）。
+4. xc 在配置解析阶段会探测 Podman 版本并触达 `podman info`，因此能验证整条链路，但**不 `up`/`down`、不起容器、不拉镜像**（脚本中禁止任何 pull 动作）；
+5. 实机核对（两种安装形态各跑一次）：冒烟结束后 `podman ps -a` 与 `podman images` 均为空、`/tmp/okw-smoke-*` 已随 `trap` 清理，不留容器、镜像或临时目录。
 
 ## 退出码
 
@@ -136,6 +159,7 @@ okw compose install <发行版> --yes --source <来源>
 - **必须装 Python 3.14 吗？会动系统 Python 吗？** xuan-compose 强制要求 3.14，但该解释器由 uv 装在用户 HOME 的独立目录，不修改系统 3.12，也不影响 apt。okw 自身仍在你 Windows 侧的 Python ≥3.10 上运行。
 - **`xc: 命令找不到`？** 非 login shell 的 `PATH` 不含 `~/.local/bin`。okw 一律用全路径验收；你在发行版交互式 shell 中可将 `export PATH="$HOME/.local/bin:$PATH"` 加入 `~/.bashrc`，或直接用 `~/.local/bin/xc`。
 - **两个 shim 版本不一致？** 报告记 FAIL；重跑 `okw compose install <name> --yes --source …`，uv 会以 `--force` 幂等重装并重建 shim。
+- **为什么 `xc version` 报 `1.6.0+xuan.1`，源码 `pyproject.toml` 里却是 `version = "0.1.0"`？** 这是两套用途不同的版本号，并非装错：`pyproject.toml` 的 `0.1.0` 是**打包元数据版本**（项目当前标注 `Development Status :: 3 - Alpha` 的分发基线）；运行时版本取包内 `src/xuan_compose/__init__.py` 的 `__version__ = "1.6.0+xuan.1"`，标识本项目与上游 containers/podman-compose 1.6.0 的对等重构关系。`xc version --short`、`xuan-compose version --short` 与 okw 验收比对显示的都是运行时版本。二者可能不同步，确切取值请以源码这两个位置的当前内容为准。
 - **本地源 `pyproject.toml` 校验失败？** 确认 `--source` 指向 xuan-compose 的项目根目录（Windows 路径会自动转 `/mnt/<drive>/...`），且该盘符在发行版内已挂载可访问。
 - **GPL 会不会传染我的项目？** okw 只做安装引导、不分发不链接 xuan-compose；你在自己机器上安装并运行一个 GPL 工具不影响你自有代码的许可证。若要再分发 xuan-compose 本身，请遵循其 GPL-2.0-only 条款。
 

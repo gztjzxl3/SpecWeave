@@ -21,6 +21,8 @@ openKylin 文档把 AI 内容分成三层：用户使用（模型管理工具、
 
 Gen1 OCR 的本地后端经 `ldd` 直链 libtesseract、`gsettings` 权威值、tesseract CLI **三源钉死**为本地 tesseract CPU 离线：无云密钥、不依赖网络/GPU/大模型。识别可用但**精度中等**，存在形近误识（如 `Kylin→Kvylin`、`麒麟→户有`），不是高准确率商用 OCR。
 
+> **先确认 `<name>`**：下文命令中的 `<name>` 是目标 WSL 发行版名称。先在 PowerShell 运行 `wsl -l -v` 查看本机发行版及其 `NAME`（本文实测机为 `openKylin-3.0-desktop`），把该名称原样填入；发行版需为 openKylin（`/etc/os-release` 的 `ID=openkylin`）。
+
 ## 第一步：只读预检
 
 ```text

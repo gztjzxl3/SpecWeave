@@ -64,8 +64,10 @@ okw podman verify <name>
 okw ai preflight <name>
 okw ai install  <name> --yes
 okw ai verify   <name>
-okw ai verify   <name> --smoke-ocr /tmp/sample.png   # 对本地图片离线识别
+okw ai verify   <name> --smoke-ocr /tmp/sample.png   # 对发行版内本地图片离线识别
 ```
+
+`<name>` 为目标 WSL 发行版名称，先在 PowerShell 运行 `wsl -l -v` 查看（如 `openKylin-3.0-desktop`）。`--smoke-ocr` 的图片可给发行版内路径（如 `/tmp/sample.png`），也支持 Windows 盘符路径（如 `C:\Users\me\sample.png`，自动转换为 `/mnt/c/Users/me/sample.png`、经 drvfs 访问）。
 
 `install` 以 root 执行 `apt install -y --no-install-recommends libkylin-ai-base-dev`，由 APT 解析 tesseract 与 `chi_sim/eng` 语言包；必须 `--yes`，漏确认零写入。可选层（Gen2 引擎、模型管理器、ollama 等）仅在 preflight/verify 中只读盘点、UNKNOWN 不阻断。okw 不配置密钥、不下载模型、不装 ollama/Gen2 全栈。完整背景与边界见[AI 栈指南](../../../docs/tech/guides/openkylin-wsl-devkit/07-ai-stack.md)。
 

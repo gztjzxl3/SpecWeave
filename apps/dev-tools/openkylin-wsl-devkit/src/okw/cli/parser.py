@@ -102,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=ai_epilog,
     )
-    p_ai_install.add_argument("name", help="发行版名称")
+    p_ai_install.add_argument("name", help="发行版名称（wsl -l -v 查看）")
     p_ai_install.add_argument(
         "--yes",
         action="store_true",
@@ -119,7 +119,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=ai_epilog,
     )
-    p_ai_verify.add_argument("name", help="发行版名称")
+    p_ai_verify.add_argument("name", help="发行版名称（wsl -l -v 查看）")
     p_ai_verify.add_argument(
         "--smoke-ocr",
         metavar="IMAGE",

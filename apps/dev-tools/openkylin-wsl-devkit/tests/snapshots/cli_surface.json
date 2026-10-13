@@ -496,7 +496,7 @@
                           "nargs": null,
                           "required": true,
                           "metavar": null,
-                          "help": "发行版名称",
+                          "help": "发行版名称（wsl -l -v 查看）",
                           "default": "None"
                         },
                         {
@@ -528,7 +528,7 @@
                           "nargs": null,
                           "required": true,
                           "metavar": null,
-                          "help": "发行版名称",
+                          "help": "发行版名称（wsl -l -v 查看）",
                           "default": "None"
                         },
                         {

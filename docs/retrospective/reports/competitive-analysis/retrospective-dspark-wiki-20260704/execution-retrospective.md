@@ -110,13 +110,13 @@ x-toml-ref: "../../../../../.meta/toml/docs/retrospective/reports/competitive-an
 |--------|------|------|
 | Spec 定义 | [spec.md](../../../../../.trae/specs/retrospectives-insights/create-dspark-learning-wiki/spec.md) | 191 行，10 个 Requirements，10 个 AC |
 | Spec 任务 | [tasks.md](../../../../../.trae/specs/retrospectives-insights/create-dspark-learning-wiki/tasks.md) | 9 个主任务，35 个子任务 |
-| Spec 清单 | [checklist.md](../../../../../.trae/specs/retrospectives-insights/create-dspark-learning-wiki/checklist.md) | 30+ 检查点 |
+| Spec 清单 | [checklist.md](../../../../../.trae/specs/retrospectives-insights/create-dspark-learning-wiki/review.md) | 30+ 检查点 |
 
 ### 实施阶段产出物
 
 | 产出物 | 路径 | 说明 |
 |--------|------|------|
-| 主文档 | [dspark-paper-wiki.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-engineering-methodology/concepts/performance/dspark-paper-wiki.md) | 455 行，约 4500 字，覆盖 10 个核心概念 |
+| 主文档 | [dspark-paper-wiki.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/practice/ai-engineering-methodology/concepts/performance/dspark-paper-wiki.md) | 455 行，约 4500 字，覆盖 10 个核心概念 |
 | 知识库索引 | [README.md](../../../../knowledge/README.md) | learning 类目下追加索引条目，含完整摘要和 10 个标签 |
 
 ### 复盘报告产出物（本次闭环）

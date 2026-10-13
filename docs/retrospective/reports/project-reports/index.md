@@ -18,6 +18,7 @@ retrospective-specweave-full-project-20260719/index
 retrospective-tvm-ffi-wiki-tutorial-20260705/index
 retrospective-volcengine-eip-learning-20260706/index
 retrospective-xuanspace-comprehensive-20260826/index
+retrospective-xuanspace-comprehensive-20261010/index
 retrospective-xuanspace-mono-repo-20260724/index
 dockerfile-optimization-retro-20260703
 frontmatter-migration-retro-20260701

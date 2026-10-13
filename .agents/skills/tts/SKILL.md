@@ -1,9 +1,7 @@
 ---
 source: "镜像自 Trae IDE builtin（源镜像已清理，原路径 skills/tts/SKILL.md）"
 name: tts
-description: "Text-to-speech and voice narration. Triggers on: \"朗读这段\", \"配音\", \"TTS\",
-\"语音合成\", \"text to speech\", \"read this aloud\", \"convert to speech\",
-\"voice narration\", \"read aloud\"."
+description: "Text-to-speech and voice narration. Triggers on: \"朗读这段\", \"配音\", \"TTS\", \"语音合成\", \"text to speech\", \"read this aloud\", \"convert to speech\", \"voice narration\", \"read aloud\"."
 ---
 
 

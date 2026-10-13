@@ -44,7 +44,7 @@
 |---|---|---|---|---|---|
 | `.agents/` | AI 智能体规范容器（roles/rules/workflows/protocols等） | 主权区直接维护 | 直接纳入版本控制 | ✅ 可修改 | [.agents/README.md](.agents/README.md) |
 | `apps/` | 主仓库内置应用开发工作空间 | 同仓库直接管理（非 git submodule） | 直接纳入版本控制 | ✅ 可修改 | [apps/AGENTS.md](apps/AGENTS.md) |
-| `projects/` | 第一方自有子项目（git submodules） | git submodule 管理 | 通过 gitlink 追踪 | ❌ 不可直接修改（走子项目流程） | [projects/AGENTS.md](projects/AGENTS.md) |
+| `projects/` | 第一方子项目区（以 git submodules 为主，另含 monetize/tvm-ffi 等主仓直接追踪的工作目录） | 子模块 git submodule 管理；工作目录主仓直接管理 | 子模块通过 gitlink 追踪；工作目录直接纳入版本控制 | 子模块 ❌ 不可直接修改（走子项目流程）；工作目录 ✅ 可修改 | [projects/AGENTS.md](projects/AGENTS.md) |
 | `vendor/` | 第三方依赖（git submodules） | git submodule 管理 | 通过 gitlink 追踪 | ❌ 禁止本地修改 | [vendor/AGENTS.md](vendor/AGENTS.md) |
 
 > **注意**：`apps/` 与 `projects/`/`vendor/` 有本质区别——`apps/` 是主仓库直接管理的普通目录，所有文件直接纳入版本控制；而 `projects/` 和 `vendor/` 是 git submodule，通过 gitlink 追踪外部仓库引用，本地修改无法直接提交到主仓库。
@@ -81,6 +81,7 @@
 | ⚙️ 工具配置 | [.agents/config/](.agents/config/README.md) | discourse 等外部工具配置文件 |
 | 🏗️ 系统架构 | [.agents/systems/](.agents/systems/README.md) | 提示词萃取系统等系统级架构定义 |
 | 📦 复用案例 | [.agents/cases/](.agents/cases/README.md) | agentforge-adoption 等项目复用案例 |
+| 🌉 DeepSeek Harness 入口桥 | [specweave-dsh-bridge/](specweave-dsh-bridge/README.md) | 把 `AGENTS.md` + `.agents/` 接入 dsh 会话入口（启动协议 brief 注入、任务路由、校验命令、`/specweave` 命令）；Host 侧 Cordis 插件，安装走 `plugin_manager install_bundle`，接入说明见 [ACCESS.md](specweave-dsh-bridge/ACCESS.md) |
 
 ## 快速开始：一句话装载
 
@@ -112,11 +113,12 @@
 完整开发规范（代码风格、提交规范、Mermaid编码、路径引用、原子化操作等）见 [development-standards.md](docs/tech/references/development-standards.md)。
 
 - **代码风格**：遵循现有代码风格，新增 `.agents/scripts/` 脚本前先查阅 [lib/README.md](.agents/scripts/lib/README.md) 共享库，禁止重复实现已有功能
+- **Python 红线**：Python 代码禁止 `from __future__ import annotations`（PEP 563 样板；3.14 起 PEP 649 默认惰性注解，冗余且语义有别；仅当代码确实依赖延迟求值且 `requires-python` 明确时豁免）；新建/修改 Python 项目须同步 AST 守护测试（参照 `apps/dev-tools/zhihu-checkin-hub/tests/test_no_future_annotations.py`），详见 [rules/ai-coding-guidelines.md](.agents/rules/ai-coding-guidelines.md)
 - **提交规范**：遵循 Conventional Commits（`type(scope): subject`），主体使用中文描述；修复类提交须标注预防措施类型
 - **Python 包构建系统**：主仓库主权区所有需要可安装的 Python 子项目（`apps/*`、`projects/*` 自有子模块）**默认统一使用 scikit-build-core** 作为 PEP 517 构建后端，模板：`requires = ["scikit-build-core>=0.9"]`、`build-backend = "scikit_build_core.build"`、`[tool.scikit-build]` 下必须声明 `wheel.packages`、`build-dir = "build/{wheel_tag}"` 与 `minimum-version = "0.9"`；纯 Python 包不写 `[tool.scikit-build.cmake]` 段，有原生 C/C++ 扩展或 CMakeLists 时再追加；setuptools/pdm 后端仅在以下场景豁免：① `vendor/` git submodule 第三方自带 pyproject.toml 且构建后端已成熟、修改成本极高；② 兼容已有发布到 PyPI 的外部项目；③ 经 SpecWeave 治理委员会明确批准的例外。**新增应用不允许使用 setuptools 作为默认构建后端**。
 - **文档边界**：根目录 `docs/` 为唯一文档中心（OKF v0.2，Sphinx 构建，面向人类读者与外部消费），承载 Wiki 教程、知识包、复盘报告、模式库与最佳实践；`AGENTS.md`/`.agents/` 面向 AI 智能体，承载角色、规则、协议、工作流、脚本与模板等规范与执行资产（不再包含 `docs/` 子树）。边界规则：①新增对外可读文档一律入 `docs/`；②`.agents/` 规范引用 `docs/` 知识源时使用 `../docs/...` 相对路径；③路径引用一律以文件实际位置为准，禁止沿用"docs/ 自动解析为 .agents/docs/"的历史隐式规则；④**`.agents/docs/` 为 2026-08-31 整体迁移后已废止的历史路径，禁止新建该目录或向其写入任何产出物**（报告/复盘/知识包/Wiki/教程），落盘时若发现该路径残留一律视为错位并迁回 `docs/` 对应目录；⑤**落盘前三查**：查目标目录是否在根 `docs/` 下、查同类产出物现有位置（如技术选型/对比报告入 `docs/retrospective/reports/competitive-analysis/`）、查所依据的规范是否为磁盘原文（系统内联的 AGENTS.md 副本可能过期，与磁盘原文冲突时以磁盘原文为准，并按启动协议步骤 1 回读核实）；私域产出物按内容敏感度预检入 `playground/`，详见 [全局核心规则](.agents/global-core-rules.md) 中的路径解析规则
 - **派生产物溯源**：派生产物须在 YAML/TOML frontmatter 携带 `source` 字段标注来源
-- **路径引用**：Markdown 文档交叉引用使用相对路径，禁止 `file:///` 绝对路径；格式为 `[可读名称](相对路径#L起始行-L结束行)`
+- **路径引用**：Markdown 文档交叉引用使用相对路径，禁止 `file:///` 绝对路径；格式为 `[可读名称](相对路径#L起始行-L结束行)`；禁止引用 `.temp/` 等临时目录内的路径（内容按保留期自动清理，引用必然失效）
 - **修复即闭环**：Bug 修复遵循「修复→预防→闭环」三阶段 SOP，禁止纯点修复（平凡修复可豁免）
 - **三阶段递进**：治理（修复→预防→闭环）、知识库（生成→重组→精确化）、抽象（具体→通用→元方法）顺序不可颠倒
 - **测试要求**：单元测试覆盖率不低于 80%，关键模块不低于 90%，所有测试用例通过无回归

@@ -23,11 +23,25 @@ ALLOWED_EXTENSIONS = {
     ".md", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java",
     ".yaml", ".yml", ".json", ".toml", ".xml", ".html", ".css",
     ".sh", ".bat", ".ps1", ".gitignore", ".gitattributes",
+    ".sql",
     ".txt", ".csv", ".pdf", ".docx", ".png", ".jpg", ".jpeg", ".gif", ".svg",
     ".tag", ".example", ".template",
-    ".ini", ".conf", ".cfg", ".log", ".lock", ".env.example",
-    ".ttf",
+    ".ini", ".conf", ".cfg", ".log", ".lock", ".env", ".env.example",
+    ".ttf", ".pth",
 }
+# 白名单含 ".sql" 的理由：apps/dev-tools/wechat-mp-archiver 引入运行时按路径
+# 加载的 SQLite 建表脚本（db/schema.sql），SQL 是仓库新增的一类纯文本声明式
+# 资产；纳入白名单不影响密钥（.env/*.key）与临时产物（.venv/__pycache__）防护。
+# 白名单含 ".env" 的理由：本项目存在「产品描述/段配置」形态的 *.env（如
+# apps/containers/offline-delivery/products/xmnn-runtime/product.env，九键产品定义，
+# 非凭证）；而裸 ".env" 的 Path.suffix 为空串，本就不经过扩展名校验，
+# 密钥保护由 .gitignore + 工作区红线（禁止提交 .env/*.key/*.pem）承担。
+# 约定名：容器构建文件（Containerfile / Dockerfile 及其形态后缀，如 Containerfile.xmnn-dev）。
+# Path.suffix 会把形态后缀（.xmnn-dev）误判为扩展名，故这类文件跳过扩展名检查。
+CONTAINERFILE_STEMS = {"containerfile", "dockerfile"}
+# 子模块 gitlink 的 index mode。gitlink 是「记录 submodule commit 的目录项」而非
+# 文件，名称由上游仓库决定（如 daoapps.github.io），不受文件命名规范约束。
+GITLINK_MODE = "160000"
 ALLOWED_CHARS = re.compile(r'^[a-zA-Z0-9._\-/\\]+$')
 NON_ASCII = re.compile(r'[^\x00-\x7F]')
 CONSECUTIVE_HYPHENS = re.compile(r'--+')
@@ -53,17 +67,37 @@ def _is_valid(filename: str, extension: str | None) -> tuple[bool, str]:
     name_no_ext = filename.rsplit('.', 1)[0] if '.' in filename else filename
     if name_no_ext.upper() in RESERVED_NAMES:
         return False, f"是 Windows 保留名称: {filename}"
+    if filename.split('.', 1)[0].lower() in CONTAINERFILE_STEMS:
+        return True, ""
     if extension and extension.lower() not in ALLOWED_EXTENSIONS:
         return False, f"扩展名不允许: {extension}"
     return True, ""
 
 
 def _get_staged(directory: Path) -> list[Path]:
+    """列出暂存区待检查的路径，剔除子模块 gitlink。
+
+    用 `--raw` 而非 `--name-only`：raw 每行携带新旧 mode，据此识别 gitlink
+    （新 mode=160000）。gitlink 指向的是子模块而非普通文件，其名称（如
+    `daoapps.github.io`）不应受文件命名规范约束；否则 Path.suffix 会把
+    `.io` 当扩展名拦下，正常的子模块指针 bump 也提交不了。
+    """
     result = subprocess.run(
-        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
+        ["git", "diff", "--cached", "--raw", "--diff-filter=ACM"],
         capture_output=True, text=True, cwd=str(directory),
     )
-    return [directory / line for line in result.stdout.strip().split('\n') if line]
+    files: list[Path] = []
+    for line in result.stdout.splitlines():
+        meta, sep, path = line.partition("\t")
+        if not sep or not path.strip():
+            continue
+        # meta 形如 ":100644 100644 0000000 abc1234 M"，第二个字段是暂存后的新 mode
+        fields = meta.split()
+        new_mode = fields[1] if len(fields) > 1 else ""
+        if new_mode == GITLINK_MODE:
+            continue
+        files.append(directory / path)
+    return files
 
 
 def _scan(directory: Path, staged_only: bool) -> list[tuple[Path, str]]:

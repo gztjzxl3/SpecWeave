@@ -1,0 +1,13 @@
+id = "behavior-characterization-freeze"
+domain = "methodology"
+layer = "methodology"
+maturity = "L1"
+validation_count = 1
+reuse_count = 0
+documentation_level = "standard"
+source = "docs/retrospective/patterns/methodology-patterns/governance-strategy/behavior-characterization-freeze.md"
+
+[bindings]
+rules = []
+references = ["no-touch-list", "snapshot-parity-migration", "fp-multi-dimensional-falsification", "error-blacklist-monotonic-evolution"]
+skills = []

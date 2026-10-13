@@ -37,7 +37,7 @@ flowchart TD
     D --> E["forum-bot.py失败: Editor定位失败"]
     E --> F["切换MCP浏览器方案"]
     F --> G["MCP参数错误: time用毫秒(2000)而非秒(2)"]
-    G --> H["误点\"分享\"按钮(footer区域判断错误)"]
+    G --> H["误点“分享”按钮(footer区域判断错误)"]
     H --> I["重新定位正确回复按钮(End键滚动到底部)"]
     I --> J["点击footer回复按钮打开composer"]
     J --> K["DOM直接设值→Ember不感知→提交无效"]

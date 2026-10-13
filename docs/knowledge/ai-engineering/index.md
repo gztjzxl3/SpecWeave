@@ -7,6 +7,7 @@
 | 文档ID | 名称 | 日期 | 核心内容 | 链接 |
 |--------|------|------|---------|------|
 | loop-engineering-kb-v1 | Loop Engineering标准化知识库 | 2026-08-01 | Harness外层执行机制、五步循环框架、三要素、四项适用标准、双层自动研究、理解债/认知让渡风险 | [loop-engineering-knowledge-base.md](/concepts/loop-engineering-knowledge-base.md) |
+| dsh-context-v1 | dsh-context 上下文生命周期可视化插件教程 | 2026-10-10 | DeepSeek Harness 开源插件：四类查看入口、Context Insights/Context 标签页/Context Browser 观测面、安装命令与兼容矩阵时效口径、观测先行治理方法论 | [dsh-context](dsh-context/index.md) |
 
 ## 配套资产
 
@@ -18,5 +19,6 @@
 :maxdepth: 2
 
 concepts/index
+dsh-context/index
 log
 ```

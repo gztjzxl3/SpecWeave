@@ -1,7 +1,7 @@
 # Containerfile.agent-monetize — agent-monetize 源码调试 + tvm-ffi 原生
 # 编译/打包叠加层（Podman rootless 谱系）
 #
-# 与 xmnn-dev 的差异（形态 B 轻量变体）：
+# 与 native-dev 的差异（形态 B 轻量变体）：
 #   - 工具链用 apt clang（单 .cc 编译，对 LLVM 版本不敏感），不装 conda LLVM 22
 #   - tvm-ffi 头/库全部来自 pip wheel apache-tvm-ffi（自带 libtvm_ffi.so）
 #   - 单一 cp314 GIL ABI（base env），无 Nuitka/free-threading 双 ABI
@@ -16,6 +16,10 @@ FROM ${BASE_IMAGE}
 
 ARG BASE_IMAGE
 ARG PIP_MIRROR=official
+# apt 镜像（与 PIP_MIRROR 对称）：official=不换源；aliyun/tuna 替换
+# 基底 ubuntu.sources 的 tuna URI。2026-10-13 实测 tuna 对 Ubuntu
+# 26.04(resolute) pool 路径大面积 403，aliyun/官方 200。
+ARG APT_MIRROR=official
 LABEL org.specweave.component="agent-monetize-dev" \
       org.specweave.layer="tvmffi-native-build" \
       org.specweave.python-versions="cp314-gil" \
@@ -24,6 +28,10 @@ LABEL org.specweave.component="agent-monetize-dev" \
 
 # Layer 1：系统工具——clang++（编译 .cc）、patchelf（rpath）、gdb（调试）
 RUN /bin/bash -lc 'set -euo pipefail ; \
+    if [ "${APT_MIRROR}" = "aliyun" ] || [ "${APT_MIRROR}" = "tuna" ]; then \
+      sed -i "s|http://mirrors.tuna.tsinghua.edu.cn/ubuntu/|https://mirrors.${APT_MIRROR}.com/ubuntu/|g" /etc/apt/sources.list.d/ubuntu.sources ; \
+      echo "[monetize] apt mirror: ${APT_MIRROR}" ; \
+    else echo "[monetize] apt mirror: inherited" ; fi ; \
     apt-get update ; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       clang patchelf gdb ; \

@@ -31,8 +31,8 @@ apps/
 ├── tests/                 ← 全局测试用例
 ├── docker-images/         ← 容器镜像类应用（7 个）
 ├── ai-agents/             ← AI 应用类（3 个）
-├── dev-tools/             ← 开发工具类（2 个）
-└── samples/               ← 示例/原型类（3 个）
+├── dev-tools/             ← 开发工具类（6 个）
+└── samples/               ← 示例/原型类（5 个）
 ```
 
 分组规则：
@@ -67,8 +67,9 @@ apps/<group>/<app-name>/
 | 应用 | 说明 |
 |------|------|
 | [jupyter-podman-rootless](containers/jupyter-podman-rootless/README.md) | 基于 Podman rootless 的 Jupyter 开发容器（Python 3.14t + Miniforge3 + SSH + OMLMD/OLOT + Toolbx 透传） |
-| [client](containers/client/README.md) | jupyter-podman-rootless 镜像消费端：podman-py load/run/stop + 镜像备份（invoke save/load）+ quant/xmnn/monetize 工作负载栈 |
+| [client](containers/client/README.md) | jupyter-podman-rootless 镜像消费端：podman-py load/run/stop + 镜像备份（invoke save/load）+ quant/native/monetize 工作负载栈 |
 | [shared](containers/README.md)（[pyproject](containers/shared/pyproject.toml)） | 组内共享包 jpman-common：podman SDK 连接层唯一事实源 + 只读工具，两端共同依赖（组层 [AGENTS](containers/AGENTS.md) 代管） |
+| [offline-delivery](containers/offline-delivery/README.md) | 厂商侧离线交付链路：消费 `containers/workspace/dist/*.whl` 与基镜像，经零 Python CLI `bin/relpack` 产出客户离线交付包（多产品分层 `products/<产品>/`，首个产品 xmnn-runtime） |
 
 #### docker-images/ —— 容器镜像类（Docker 生态）
 
@@ -97,6 +98,10 @@ apps/<group>/<app-name>/
 |------|------|
 | [prompt_extraction](dev-tools/prompt_extraction/README.md) | 提示词质量评估与提取工具 |
 | [okf-zhihu-publisher](dev-tools/okf-zhihu-publisher/README.md) | OKF 知乎发布器（内容同步发布工具） |
+| [wechat-mp-archiver](dev-tools/wechat-mp-archiver/README.md) | 微信公众号全量内容归档工具（采集服务 + 离线归档/RAG/报表） |
+| [zhihu-checkin-hub](dev-tools/zhihu-checkin-hub/README.md) | 知乎打卡工作台（本地追踪/打卡 + 发布前固定门 + 浏览器半自动发布；零数据库、无 AI、无凭证） |
+| [openkylin-wsl-devkit](dev-tools/openkylin-wsl-devkit/README.md) | openKylin WSL 开发工具包（以 WSL 为切入点：发行版管理/环境验收/deb+dput 脚手架/知识库参考/rootless Podman 预检安装验收/AI 本地离线 OCR/桌面 UKUI·xrdp 启动预检补齐验收；零第三方依赖，`okw` CLI） |
+| [agent-workspace-starter](dev-tools/agent-workspace-starter/README.md) | 智能体工作区起步套件（对外运营产品）：最小化 .agents 萃取 + 60 分钟教程 + 规格驱动演练 + 零依赖自检脚本 |
 | camera-power-controller | 摄像头电源控制工具（暂缺 README） |
 
 #### samples/ —— 示例/原型类
@@ -105,11 +110,16 @@ apps/<group>/<app-name>/
 |------|------|
 | [cow-demo](samples/cow-demo/README.md) | 零拷贝 COW 读写分离模式 C++ 示例框架 |
 | [short-video-site](samples/short-video-site/README.md) | ReelVibe 短视频网站（AI 全流程开发 Demo） |
+| [designer-portfolio](samples/designer-portfolio/README.md) | 设计师作品集静态网站（纯 HTML/CSS/JS + GSAP，零构建 Demo，首页 + 4 个项目详情页） |
+| [dao-survival-guide](samples/dao-survival-guide/README.md) | 大道极简生存指南（七条判据）交互应用（纯 HTML/CSS/JS 零构建：判牍式七问盖印 + 分层判状 + 最短版本表，源自 OKF 知识包 04） |
+| [maitian-bakehouse](samples/maitian-bakehouse/README.md) | 麦田烘焙 · 烘焙工作室展示网页（纯 HTML/CSS/JS 零构建；温馨文艺落地页：首屏大图 + 6 款招牌产品 + 品牌故事 + 顾客好评 + 联系地址/地图占位，手写体标题 + 奶油棕配色） |
 | [serial-camera-controller](samples/serial-camera-controller/README.md) | 串口控制 USB 摄像头抓图/录像（CH340+OpenCV+pyserial） |
 | [samples-retrospective](samples/samples-retrospective/README.md) | samples 区复盘与经验沉淀 |
 | zleap-workspace-first-prototype | 工作区首个原型（多模型路由，暂缺 README） |
 
-> **维护约定**：`agent-monetize/` 为根级独立应用（不属上述分组，见下方自动应用清单）；新增/移动应用时同步本小节与下方自动清单（运行 `python .agents/scripts/docgen.py apps` 刷新）。
+> **维护约定**：`agent-monetize/`、`inurl-byok-token-hub/` 为根级独立应用（不属上述分组，见下方自动应用清单）；新增/移动应用时同步本小节与下方自动清单（运行 `python .agents/scripts/docgen.py apps` 刷新）。
+>
+> 根级独立应用补充：`guard-quality-life-site/`、`travel-planner/`、`coach-moments-growth/`（商业教练朋友圈 AI 增长系统——面向高净值客群的私域内容运营方案：定位/内容/转化/度量/合规五模块，含 AI 提示词与文案模板；规格 `.trae/specs/coach-moments-growth/`）。
 
 ### 2.4 应用清单
 
@@ -119,11 +129,15 @@ apps/<group>/<app-name>/
 |---|---|---|
 | `agent-monetize/` | **Python 3.14+ 智能体自动变现平台** —— 自主循环 + 道家门控 + 沙箱通道 + tvm-ffi 桥接。 | [README.md](agent-monetize/README.md) |
 | `ai-agents/` | ai-agents 应用 | `ai-agents/`（暂无 README） |
+| `coach-moments-growth/` | 商业教练朋友圈 AI 增长系统（coach-moments-growth） | [README.md](coach-moments-growth/README.md) |
 | `containers/` | containers/ — Podman rootless 容器工作区分组 | [README.md](containers/README.md) |
 | `dev-tools/` | dev-tools 应用 | `dev-tools/`（暂无 README） |
 | `docker-images/` | docker-images 应用 | `docker-images/`（暂无 README） |
+| `inurl-byok-token-hub/` | BYOK 统一令牌枢纽复刻：E2EE 密钥保险库 + 逻辑别名路由 + 本地三协议代理 + 用量计费。 | [README.md](inurl-byok-token-hub/README.md) |
+| `guard-quality-life-site/` | 《守护品质生活》生活方式方案库可变现 MVP 网站：Python 3.14+ / FastAPI 动态 Web，11 域知识树浏览/搜索 + 订阅兴趣登记 + 推荐位占位 + 访问埋点三验证信号，暖灰纸感 UI（gqlsite）。 | [README.md](guard-quality-life-site/README.md) |
 | `samples/` | samples 应用 | `samples/`（暂无 README） |
 | `tests/` | tests 应用 | `tests/`（暂无 README） |
+| `travel-planner/` | 本地单用户 Web 应用：多行程管理、每日行程编排、预算跟踪、打包清单、JSON 导入导出，以及可选的 **BYOK AI 行程草稿生成**（任意 Ope... | [README.md](travel-planner/README.md) |
 
 <!-- APPS_TABLE_END -->
 

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }} · 支付 · 守护品质生活{% endblock %}
+{% block content %}
+<div class="crumb"><a href="/">知识树</a> › {{ item.name }}</div>
+
+<article class="card article">
+  <h1>{{ item.name }}</h1>
+  <p class="muted">价格：￥{{ item.price }}</p>
+  <p class="lede">{{ item.desc }}</p>
+
+  {% if error is defined and error %}
+  <p class="caveat">⚠️ {{ error }}</p>
+  {% endif %}
+
+  {% if out_trade_no is defined and pay_form is defined %}
+    <!-- 已创建订单：渲染支付宝支付表单并自动提交 -->
+    <p class="muted small">订单号：{{ out_trade_no }}</p>
+    <div class="pay-form">
+      {{ pay_form | safe }}
+      <noscript>
+        <button class="btn" type="submit" form="alipay_submit">立即支付</button>
+      </noscript>
+    </div>
+    <p class="muted small">正在跳转支付宝收银台…若无反应，请<a href="#" onclick="document.getElementById('alipay_submit').submit();return false;">点击这里手动提交</a>。</p>
+  {% elif placeholder %}
+    <p class="caveat">支付通道尚未配置真实凭据（appId / 应用私钥 / 支付宝公钥 / 回调地址）。</p>
+    <p class="muted">真实交易需要在支付宝开放平台申领凭据，并通过环境变量
+      <code>GQLSITE_PAY_APP_ID</code>、<code>GQLSITE_PAY_APP_PRIVATE_KEY</code>、
+      <code>GQLSITE_PAY_ALIPAY_PUBLIC_KEY</code> 注入后重启服务方能发起付款。
+      当前页面仅作演示，不产生任何真实扣款。</p>
+    <form class="card form" method="post" action="/checkout/{{ product_id }}">
+      <button type="submit" class="btn" disabled>支付待配置</button>
+    </form>
+  {% else %}
+    <form class="card form" method="post" action="/checkout/{{ product_id }}">
+      <p class="muted">点击下单后将跳转支付宝完成付款。付款成功即发放对应权益。</p>
+      <button type="submit" class="btn">立即支付 ￥{{ item.price }}</button>
+    </form>
+  {% endif %}
+
+  <p><a class="secondary" href="/order/{{ out_trade_no if out_trade_no is defined else '' }}">查看订单</a></p>
+</article>
+{% endblock %}

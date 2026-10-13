@@ -18,12 +18,15 @@ Windows WSL 支持说明（对齐 podman-py OKF v0.2 §8 Windows 三路径）：
     ``wsl_distro_name`` 负责（与挂载路径解耦，不要混淆）。
 """
 import functools
+import http.client
 import os
 import platform
 import re
 import shlex
+import stat
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -305,7 +308,7 @@ def image_load_cli_command(runtime: str, tar_path: Path | str) -> str:
 def ensure_workspace_checkpoint_writable(workspace: Path | str) -> None:
     """确保工作区根的 Jupyter checkpoint 目录对容器内非 root 服务可写。
 
-    背景（2026-09-14 xmnn-dev 栈实测）：基底 entrypoint 仅对 ``/workspace`` 根
+    背景（2026-09-14 native-dev 栈实测）：基底 entrypoint 仅对 ``/workspace`` 根
     本身 chmod 777（非递归，保护宿主文件属主），而 Jupyter 经 supervisord 以
     devuser（容器内 uid 1000）运行。rootless podman 经 9p/drvfs 挂载宿主工作区
     时，容器内 root 预建的 ``.ipynb_checkpoints`` 在容器视角属主为 0:0、模式
@@ -330,11 +333,182 @@ def ensure_workspace_checkpoint_writable(workspace: Path | str) -> None:
         print(f'        可在宿主侧手动修正：chmod 777 "{cp}"')
 
 
+def _wanted_bind_mode(mode: int, *, is_dir: bool, writable: bool) -> int:
+    """按容器内 devuser（固定 UID 1000）经 **other 位**访问的契约计算目标模式。
+
+    **单调只加不减**：门禁语义是「放宽」，任何既存写位/setgid/sticky 都原样
+    保留——只读树里已有的 0777 目录不得被降级成 0755（对非属主 inode 尝试
+    降级还会立刻 EPERM 并污染整个遍历）。
+
+    - 目录：补 ugo 读/执行位；writable 再补 ugo 写位（0777 语义）。
+    - 文件：补 ugo 读位；任一执行位存在则补 ugo 执行位（``a+rX`` 语义）；
+      writable 再补 ugo 写位（``a+rwX`` 语义）。
+    """
+    wanted = mode | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
+    if is_dir:
+        wanted |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    elif mode & 0o111:
+        wanted |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    if writable:
+        wanted |= stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
+    return wanted & 0o7777
+
+
+def ensure_world_writable_dir(
+    path: Path | str, *, label: str, namespace: str = "compose"
+) -> bool:
+    """幂等放宽**单个目录**为 0777（非递归、只改权限位、保留 setgid/sticky）。
+
+    用于 temp/checkpoint 类挂载根：容器内 devuser 自建的子项属主为其自身，
+    无需递归处理；但根目录本身须可写（宿主进程按默认 umask 预建时常落 0755）。
+    返回是否实际放宽且生效。失败只警告不抛错（与 checkpoint 契约一致）。
+    """
+    p = Path(path)
+    try:
+        cur = stat.S_IMODE(p.stat().st_mode)
+        wanted = cur | 0o777
+        if cur != wanted:
+            p.chmod(wanted)
+            if stat.S_IMODE(p.stat().st_mode) & 0o002 == 0:
+                # 9p/drvfs 无 metadata 挂载项：chmod rc=0 但位不变（W-I19）
+                print(f"[{namespace}] ⚠ {label} 权限位放宽未生效（chmod 后仍不可写）：{p}")
+                print("        若宿主为 WSL/9p 挂载，chmod 是空操作，请按 docs/04 W-I19 在宿主侧处置。")
+                return False
+            print(f"[{namespace}] 已放宽挂载点 {label} 为 0777（非递归，仅权限位）：{p}")
+        return True
+    except OSError as exc:
+        print(f"[{namespace}] ⚠ 未能放宽 {label} 权限（容器内写入可能报 Errno 13）：{exc}")
+        print(f'        可在宿主侧手动修正：chmod 777 "{p}"')
+        return False
+
+
+def ensure_bind_tree_accessible(
+    path: Path | str,
+    *,
+    writable: bool,
+    label: str,
+    namespace: str = "compose",
+) -> tuple[int, int]:
+    """放宽 bind 挂载**宿主源树**权限位，使容器内 devuser（固定 UID 1000）可达。
+
+    背景（2026-10-12 native-dev 栈实测，排障 C-I12）：rootless podman 固定
+    映射下容器 UID 0 对应当前宿主用户，容器 devuser(1000) 落在 /etc/subuid
+    区间内对应一个宿主子 UID。宿主侧若以 0700 检出/同步源码树（AI 工具落盘、
+    umask 077、rsync 保权均常见），进容器即呈 ``root:root 0700``，devuser
+    只能凭 **other 位**访问 → Jupyter 内 ``pip install -e .`` 在读
+    pyproject.toml 阶段即 ``OSError: [Errno 13] Permission denied``，目录
+    写位缺失还会继续卡住 egg-info 落盘。栈内其他 bind 树（npu_tvm/
+    npuusertools/models）的事实契约本就是 0777/0755 + other 位可访问，本函数
+    把该契约从「靠自觉」升级为 up/build/smoke 前 prepare_env 咽喉点的幂等门禁。
+
+    红线（与 checkpoint 契约同族）：
+      - **只改权限位、永不 chown**（改属主会穿透为宿主子 UID，破坏宿主 git 工作流）；
+      - 作用域仅限声明式挂载的源树，不触及其余宿主路径；
+      - 不跟随符号链接（Linux 无 lchmod 语义，且防越树）；
+      - POSIX-only：Windows 原生直接跳过（NTFS/9p 语义不同，跨运行时无主文件
+        由 docs/04 W-I7/W-I19 的宿主侧处置覆盖）；
+      - 失败只警告不阻断栈启动；chmod 后位不变（9p 无 metadata 空操作）时点名
+        W-I19，不假装修好。
+
+    :returns: ``(已修正 inode 数, 失败 inode 数)``，供测试与日志使用。
+    """
+    if os.name != "posix":
+        return 0, 0
+    root = Path(path)
+    try:
+        if not root.is_dir():
+            return 0, 0
+    except OSError as exc:
+        print(f"[{namespace}] ⚠ {label} 挂载源无法访问，跳过权限门禁：{exc}")
+        return 0, 0
+
+    # 属主墙早退：挂载树可能由其他宿主账户/另一 UID 映射上下文写入（实测
+    # models 树存在 uid=1001 的 0700 子树），当前用户对这些 inode 的 chmod 恒
+    # EPERM、os.walk 下钻 sealed 目录同样报错——逐个尝试既修不好又会把 up 拖到
+    # 数十秒。失败达到阈值即停止遍历，输出属主账户手工命令（warn-only）。
+    failure_budget = 20
+    fixed = 0
+    failed: list[str] = []
+    aborted = False
+
+    def relax(p: Path, *, is_dir: bool) -> None:
+        nonlocal fixed, aborted
+        if aborted:
+            return
+        try:
+            cur = p.lstat()
+            if stat.S_ISLNK(cur.st_mode):
+                return
+            cur_mode = stat.S_IMODE(cur.st_mode)
+            wanted = _wanted_bind_mode(cur_mode, is_dir=is_dir, writable=writable)
+            if cur_mode == wanted:
+                return
+            p.chmod(wanted)
+            fixed += 1
+        except OSError as exc:
+            failed.append(f"{p}（{exc.__class__.__name__}）")
+            if len(failed) >= failure_budget:
+                aborted = True
+
+    def _on_walk_error(exc: OSError) -> None:
+        if not aborted:
+            failed.append(f"{getattr(exc, 'filename', '?')}（{exc.__class__.__name__}）")
+            if len(failed) >= failure_budget:
+                aborted = True  # 配合循环侧 break/清空 dirnames 尽快收敛
+
+    relax(root, is_dir=True)
+    for dirpath, dirnames, filenames in os.walk(
+        root, followlinks=False, onerror=_on_walk_error
+    ):
+        if aborted:
+            break
+        base = Path(dirpath)
+        for name in dirnames:
+            relax(base / name, is_dir=True)
+            if aborted:
+                break
+        if aborted:
+            dirnames.clear()  # 阻止 os.walk 继续下钻
+            break
+        for name in filenames:
+            relax(base / name, is_dir=False)
+            if aborted:
+                break
+
+    # 生效校验：根目录目标 other 位仍缺失 = 9p/drvfs 空操作（rc=0 属性不变）
+    probe = stat.S_IWOTH if writable else stat.S_IROTH
+    try:
+        noop = stat.S_IMODE(root.stat().st_mode) & probe == 0
+    except OSError:
+        noop = True
+    if fixed:
+        flavor = "可读写 a+rwX/目录777" if writable else "只读 a+rX/目录755"
+        print(
+            f"[{namespace}] 已放宽挂载源「{label}」权限位：{fixed} 个 inode"
+            f"（{flavor}，仅权限位不改属主）：{root}"
+        )
+    if noop:
+        print(f"[{namespace}] ⚠「{label}」chmod 未在宿主文件系统生效（根目录仍缺 other 位）：{root}")
+        print("        WSL/9p 无 metadata 挂载项下 chmod 是空操作，处置见 docs/04 W-I19（宿主侧换 inode）。")
+    if failed:
+        shown = "；".join(failed[:5])
+        tail = "（已达阈值，停止遍历）" if aborted else ""
+        print(f"[{namespace}] ⚠「{label}」{len(failed)} 个 inode 放宽失败{tail}（不阻断启动）：{shown}")
+        if aborted:
+            print("        多为其他宿主账户/运行时写入的 inode：请以该属主账户（或 sudo）执行下列命令后重试。")
+        if writable:
+            print(f'        宿主侧手工修正：find "{root}" -type d -exec chmod 777 {{}} + && '
+                  f'find "{root}" -type f -exec chmod a+rwX {{}} +')
+        else:
+            print(f'        宿主侧手工修正：chmod -R a+rX "{root}"')
+    return fixed, len(failed)
+
+
 # ---------------------------------------------------------------------------
 # Windows 原生 → WSL 发行版透明桥接（compose 子进程层的平台门禁平替）
 #
 # 背景（F/V 阶段 2026-09-15 设计）：
-#   quant/xmnn/monetize 三栈的 podman-compose 短语法挂载在 Windows 原生 CPython
+#   quant/native/monetize 三栈的 podman-compose 短语法挂载在 Windows 原生 CPython
 #   存在已知缺陷（os.makedirs 误建源路径等），原设计一律 _gate_platform() 门禁
 #   Exit(1)。但"门禁"是保护手段而非目标——本质目标 = Windows 原生输入
 #   ``invoke <stack>.build`` 能正确构建。已实证的 POSIX 执行环境
@@ -367,18 +541,63 @@ _BRIDGE_COMMON_ENV_KEYS = (
 )
 
 
+def _wsl_stderr_last_line(raw: bytes) -> str:
+    """取 wsl.exe stderr 的末条非空行做单行摘要。
+
+    wsl.exe 自身诊断（``WSL (...) ERROR: ...``）以 UTF-16LE+BOM 写出，被捕获
+    命令的输出则是 UTF-8；按前 64 字节是否含 NUL 判编码。
+    """
+    if not raw:
+        return ""
+    encoding = "utf-16-le" if b"\x00" in raw[:64] else "utf-8"
+    text = raw.decode(encoding, errors="ignore").replace("\x00", "")
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return lines[-1] if lines else ""
+
+
 @functools.lru_cache(maxsize=4)
-def _wsl_distro_available(distro: str) -> bool:
-    """探测 WSL 发行版是否可启动（10-15s 超时，结果缓存）。"""
+def _wsl_probe(distro: str) -> tuple[bool, str]:
+    """探测 WSL 发行版是否可启动（15s 超时，结果缓存）。
+
+    返回 ``(可用, 失败原因)``。失败原因**不可吞**：发行版「存在但 VM 层不可用」
+    （2026-09-20 实证：状态 Running 下 ``execvpe(/bin/true) failed: I/O error``，
+    wsl.exe 退出码 11）与「发行版不存在」的处置完全不同——吞掉 stderr 只会让
+    上层门禁给出 ``wsl -l -v`` 这类**看似健康**的指引，把用户送进死胡同。
+    """
     try:
         cp = subprocess.run(
             ["wsl.exe", "-d", distro, "--", "true"],
             capture_output=True,
             timeout=15,
         )
-        return cp.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return False
+    except subprocess.TimeoutExpired:
+        return False, f"wsl.exe -d {distro} 探测超时（15s）"
+    except (FileNotFoundError, OSError) as exc:
+        return False, f"无法执行 wsl.exe：{exc}"
+    if cp.returncode == 0:
+        return True, ""
+    reason = _wsl_stderr_last_line(getattr(cp, "stderr", b"") or b"")
+    return False, reason or f"wsl.exe -d {distro} 返回 {cp.returncode}"
+
+
+def _wsl_distro_available(distro: str) -> bool:
+    """发行版可启动判定（``_wsl_probe`` 的布尔投影，保留既有打桩点）。"""
+    return _wsl_probe(distro)[0]
+
+
+def wsl_bridge_diagnosis() -> str:
+    """桥接不可用的**真实原因**摘要，供门禁提示原样打印。
+
+    非 Windows 或桥接可用返回空串；``COMPOSE_WSL_DISTRO=none`` 是用户显式
+    关闭（非故障），单独说明。命中 ``_wsl_probe`` 的进程内缓存，无重复探测。
+    """
+    if platform.system() != "Windows":
+        return ""
+    raw = os.environ.get(COMPOSE_WSL_DISTRO_ENV, "").strip()
+    if raw.lower() == "none":
+        return f"{COMPOSE_WSL_DISTRO_ENV}=none（显式关闭桥接）"
+    ok, reason = _wsl_probe(raw or _DEFAULT_COMPOSE_DISTRO)
+    return "" if ok else reason
 
 
 def _wsl_bridge_distro() -> Optional[str]:
@@ -518,6 +737,88 @@ def ensure_wsl_rootless_runtime() -> None:
         )
 
 
+# 会话自愈轮询节奏：~10s 上限（实测 systemd 到位后 bus/socket 7s 内齐备）
+_WSL_SESSION_POLL_INTERVAL = 0.5
+_WSL_SESSION_POLL_ATTEMPTS = 20
+
+
+def ensure_wsl_user_session() -> None:
+    """WSL2 裸启动发行版的 systemd 用户会话幂等自愈（2026-09-27 实证）。
+
+    背景（session sc-20260927-fix-bscheme-gate）：``podman-machine-default``
+    是「嵌套 systemd」发行版——systemd 由 ``unshare -p -m --propagation shared``
+    运行在独立命名空间（PID 非 1），Windows 侧 ``podman machine start`` 开机
+    拉起。该会话产出两项**运行期硬资源**：
+      ① ``/run/user/<uid>/bus``（dbus-broker 用户总线）——`up --passthrough`
+         的 D-Bus 挂载源（compose.passthrough.yaml）；
+      ② ``/run/user/<uid>/podman/podman.sock``（podman.socket 单元）——
+         B-scheme 宿主 rootless daemon 挂载源（三叠加栈 + invoke run）。
+    但桥接平面（run_in_wsl_bridge，非登录 shell；见 windows-wsl.md §8）刻意
+    不经过 enterns 命名空间，且不依赖 Windows 侧 machine 平面；发行版被 WSL
+    回收后由 ``wsl -d`` 裸启动时上述资源全部缺失，两个门禁先后硬失败
+    （2026-09-27 用户实况：先 B-scheme C-I5、再 D-Bus）。
+
+    自愈方式 = 复刻 machine 的启动命令（真机进程树逐字实测）：
+      ``sudo -n setsid nohup unshare --kill-child --fork --pid --mount
+        --mount-proc --propagation shared /lib/systemd/systemd``
+    2026-09-27 实测：裸启动发行版内 7s 内 systemd + bus + podman.sock 齐备
+    （以桥接真实身份 user + sudo -n 验证）。
+
+    仅在 ``bus`` **缺失**时动作——bus 是 systemd 用户会话的**唯一权威产物**
+    （dbus-broker 只能由 user manager socket-activated）；``podman.sock``
+    不能作为会话在否判据：它另有独立产出路径 ``podman system service``
+    （``jpman_common.ensure_host_podman_socket`` 的兜底）。2026-09-27 实证的
+    半会话死锁即源于旧 OR 判据：spawn 兜底先产出 socket，本函数据此跳过，
+    bus 永久缺失、``--passthrough`` D-Bus 门禁永久失败。
+
+    过渡态（V 对抗审查 V-4）：socket 已被手工 service 占用时拉起会话，
+    systemd 的 podman.socket 单元 bind 失败（journal 留错），但 bus 正常、
+    socket 继续由手工 service 服务，功能无损——不中途切换 daemon，up 全程
+    只解析一次 socket（切换反而造成连接不一致）。
+
+    ``sudo -n`` 免密不可用时仅警告不阻断（标准环境由 Windows 侧 machine
+    管理会话，不越权）；启动后轮询 ``bus`` 出现（~10s），超时仅告警——
+    后续门禁仍会给出 C-I5 / D-Bus 中文指引，保持可诊断。
+    """
+    if platform.system() != "Linux":
+        return
+    try:
+        proc_version = Path("/proc/version").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return
+    if "microsoft" not in proc_version.lower():
+        return
+
+    uid = os.getuid()  # 仅 Linux 分支可达
+    runtime_dir = Path(f"/run/user/{uid}")
+    if (runtime_dir / "bus").exists():
+        return  # bus 是会话唯一权威产物；socket 可能由独立 service 产出，
+    # 以它为判据会造成「半会话死锁」（见函数 docstring）。
+
+    start = (
+        "sudo -n sh -c 'setsid nohup unshare --kill-child --fork --pid "
+        "--mount --mount-proc --propagation shared /lib/systemd/systemd "
+        ">/tmp/wsl-user-session.log 2>&1 &'"
+    )
+    result = subprocess.run(start, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(
+            "[compose] ⚠ WSL 用户会话（systemd）缺失且自动拉起失败："
+            f"{(result.stderr or '').strip()[:160]}；后续门禁将给出 C-I5 / D-Bus 指引"
+        )
+        return
+    for _ in range(_WSL_SESSION_POLL_ATTEMPTS):
+        time.sleep(_WSL_SESSION_POLL_INTERVAL)
+        if (runtime_dir / "bus").exists():
+            print("[compose] 已自动拉起 WSL 用户会话（systemd）——D-Bus 总线就绪")
+            return
+    print(
+        f"[compose] ⚠ WSL 用户会话拉起后 bus 未在 "
+        f"{_WSL_SESSION_POLL_ATTEMPTS * _WSL_SESSION_POLL_INTERVAL:.0f}s 内出现"
+        "（日志 /tmp/wsl-user-session.log）；后续门禁将给出指引"
+    )
+
+
 def default_build_cache_dir() -> Path:
     """默认镜像缓存目录。
 
@@ -538,7 +839,31 @@ def default_build_cache_dir() -> Path:
     return (Path.cwd() / ".image-cache").resolve()
 
 
-def find_latest_image_tar(search_dir: Path) -> Optional[Path]:
+# 归档名中的 torch 形态段：`<stem>-torch-<flavor>-<shortid>-<ts>(.tar.gz|.tar)`。
+# 形式与 client_core.save_image 的命名严格互逆（C20），改动其一必须同步另一处。
+_ARCHIVE_FLAVOR_RE = re.compile(
+    r"-torch-([A-Za-z][A-Za-z0-9._]*)-[0-9a-z]+-\d{8}-\d{6}\.(?:tar\.gz|tar)$"
+)
+
+
+def archive_flavor(filename: str) -> str:
+    """从镜像归档文件名解析 torch 形态（无形态标注返回空串）。
+
+    与 ``client_core.save_image`` 的命名互为倒影。形态段的标记中缀 ``-torch-``
+    不可省：无标记的 ``-<flavor>-`` 会与镜像 tag 自带的 ``-latest`` 段互相冒充，
+    例如 ``localhost-native-dev-latest-<shortid>-<ts>.tar.gz`` 会被反向解析成
+    ``flavor="latest"``（左最早匹配必然落在 ``-latest-`` 上）。
+
+    只解析真实归档名；``*-latest`` 软链接由 :func:`find_latest_image_tar` 跳过，
+    不进入本函数的解析面。
+    """
+    m = _ARCHIVE_FLAVOR_RE.search(Path(filename).name)
+    return m.group(1) if m else ""
+
+
+def find_latest_image_tar(
+    search_dir: Path, flavor: Optional[str] = None
+) -> Optional[Path]:
     """在缓存目录中搜索最新（按 mtime 排序）的镜像 tar/tar.gz。
 
     同时覆盖 ``*.tar.gz``（构建端 ``jpman save`` 产物）与 ``*.tar``（save 在
@@ -549,6 +874,11 @@ def find_latest_image_tar(search_dir: Path) -> Optional[Path]:
     其目标（9p 挂载的符号链接），抛 ``OSError: [WinError 1920]``——修复前
     ``inv load`` 在 Windows 原生下即因此崩溃。真实镜像文件会被正常 glob
     匹配，latest 链接只是冗余别名，跳过不影响"取最新"语义。
+
+    ``flavor``：按归档名中的 ``-torch-<形态>-`` 段过滤。``None``（默认）不过滤，
+    保持历史「取最新」语义；空串只取**未标注形态**的归档；``"cu130"`` 等只取该
+    形态的归档。cpu 与 cu130 归档同族共存时，不带过滤的「取最新」会静默取错，
+    故形态已知的调用方必须传本参数。
     """
     if not search_dir.exists():
         return None
@@ -557,6 +887,8 @@ def find_latest_image_tar(search_dir: Path) -> Optional[Path]:
         for p in search_dir.glob(pattern):
             try:
                 if p.is_symlink():
+                    continue
+                if flavor is not None and archive_flavor(p.name) != flavor:
                     continue
                 candidates.append((p.stat().st_mtime, p))
             except OSError:
@@ -817,3 +1149,79 @@ def refresh_host_keys(cfg: ContainerConfig) -> None:
         _time.sleep(1)
 
     print("[Run] ⚠ 未能从 sshd 获取 host key（keyscan 与服务器 KEX 不兼容或 sshd 异常），首次 SSH 连接请输入 yes 接受新 host key")
+
+
+# ── 服务就绪探测（C21）────────────────────────────────────────────────────────
+# 「容器 Up」≠「服务可访问」：rootless 端口转发器（rootlessport）在容器起来的
+# **瞬间**就 accept 宿主端口上的连接，而容器内 supervisord → entrypoint →
+# jupyter-lab 真正 listen 需要数十秒（native 实测 66 秒）。窗口期内连接被接受后
+# **立即关闭且零字节返回**，浏览器报 `ERR_EMPTY_RESPONSE`（而非更易理解的
+# `ECONNREFUSED`），用户被「✅ 栈已启动」文案与「端口可连」双重误导。
+#
+# 故就绪判据**必须是应用层应答**：本场景下裸 TCP connect 会**假阳性**（转发器
+# 先于后端 accept）。注意与 :func:`refresh_host_keys` 的 sshd 探测区分——那里探
+# 的是同 netns 内真实监听者，connect 成功即等价就绪，语义不同，不可互相套用。
+UP_READY_TIMEOUT_S = 120.0
+UP_READY_POLL_S = 1.5
+UP_READY_PROGRESS_S = 10.0
+UP_READY_PATH = "/lab"
+
+
+def wait_http_ready(
+    port: int,
+    *,
+    path: str = UP_READY_PATH,
+    timeout: float = UP_READY_TIMEOUT_S,
+    on_progress=None,
+) -> tuple[bool, str]:
+    """轮询宿主 ``port`` 直到拿到**任意 HTTP 应答**，返回 ``(是否就绪, 说明)``。
+
+    任一地址回出状态码（2xx/3xx/4xx 皆算）即视为就绪——Jupyter 未带 token 时
+    回 302，属正常应答；只有「连不上」与「连上却零字节」两种情形不算。
+
+    探测地址显式覆盖 ``127.0.0.1`` 与 ``::1``（与 :func:`refresh_host_keys`
+    同因：``localhost`` 可能优先解析到未监听的 ``::1``，而转发只绑 IPv4）。
+    两地址**各自独立记录末次错误**：IPv4 优先探测且其状态是就绪判据的权威信号；
+    ``::1`` 在服务仅绑 IPv4（Jupyter 默认 ``0.0.0.0``，rootlessport 多数配置亦
+    仅 v4）时会**永久拒绝**——这是预期噪声，绝不能让它独占超时文案（历史实现
+    用单变量 ``last``，每轮被最后探测的 ``::1`` 覆盖，把 v4 侧真实状态——
+    尚未 listen 的 ConnectionRefused 或 rootlessport 零字节窗——淹没，
+    误导成「IPv6 故障」；2026-09-24 native host 形态实证）。
+
+    超时**不抛异常、不判失败**：容器确实已 Up，只是服务仍在首次启动；调用方
+    应打印可执行指引而非中断（对齐 `up_preflight` 的「自愈优先、指引兜底」）。
+    ``on_progress`` 为可选的进度回调（收到已等待秒数），用于长窗口期给出反馈。
+    """
+    import time as _time
+
+    addrs = ("127.0.0.1", "::1")
+    started = _time.monotonic()
+    deadline = started + timeout
+    next_progress = started + UP_READY_PROGRESS_S
+    # 各地址末次错误（异常类名）；保留到超时时逐地址归因，不互相覆盖。
+    last_err: dict[str, str] = {}
+    while True:
+        for addr in addrs:
+            conn = http.client.HTTPConnection(addr, int(port), timeout=2.0)
+            try:
+                conn.request("GET", path)
+                resp = conn.getresponse()
+                return True, f"{addr} → HTTP {resp.status}"
+            except (OSError, http.client.HTTPException) as exc:
+                last_err[addr] = type(exc).__name__
+            finally:
+                conn.close()
+        now = _time.monotonic()
+        # 先报进度再判超时：窗口期最后一段也要有反馈（否则用户只看到「卡住」）
+        if on_progress is not None and now >= next_progress:
+            on_progress(now - started)
+            next_progress = now + UP_READY_PROGRESS_S
+        if now >= deadline:
+            per_addr = "；".join(
+                f"{a} {last_err.get(a, '无应答')}" for a in addrs
+            )
+            return False, (
+                f"{per_addr}（{now - started:.0f}s 无 HTTP 应答；"
+                "::1 拒绝在服务仅绑 IPv4 时属预期，以 127.0.0.1 状态为准）"
+            )
+        _time.sleep(UP_READY_POLL_S)

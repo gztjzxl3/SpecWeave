@@ -58,6 +58,7 @@ date: "2026-07-09"
 | [三层递进流水线：文档先行→原型验证→对外包装](three-layer-delivery-pipeline.md) | 三层递进流水线：文档先行→原型验证→对外包装 | L3 |  |
 | [三层IoT技术架构范式（硬件极简+App灵活+云端增值）](three-tier-iot-architecture.md) | 三层IoT技术架构范式（硬件极简+App灵活+云端增值） | L2 |  |
 | [垂直SaaS MCP能力开放模式（Vertical SaaS Capability Exposure via MCP）](vertical-saas-mcp-capability-exposure.md) | 垂直SaaS MCP能力开放模式（Vertical SaaS Capability Exposure via MCP） | L2 |  |
+| [统一契约工具编排层（Unified-Contract Tool Orchestration Layer）](unified-contract-tool-orchestration-layer.md) | 把多个异构外部工具经 Provider 适配器接入统一契约、供单一消费者经单入口消费（能力以契约为准、CLI/前端只是契约投影）——案例：REA rea-agents v6.4.0 统一 MCP 契约编排（1 案例） | L1-draft | `工具编排` `统一契约` `MCP` |
 | [垂直场景AI产品三要素模型（Vertical Scenario AI: Three Elements）](vertical-scenario-ai-three-elements.md) | 垂直场景AI产品三要素模型（Vertical Scenario AI: Three Elements） | L3 |  |
 | [零和规则反利用](zero-sum-rule-inversion.md) | 零和规则反利用 | L1 |  |
 

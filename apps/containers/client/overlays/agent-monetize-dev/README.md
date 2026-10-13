@@ -5,7 +5,7 @@
 > tvm-ffi 原生 `score_opportunity.so`（头/库来自 pip 包 apache-tvm-ffi），
 > Python 经 tvm-ffi 走原生 PackedFunc 打分；并能 setuptools 打纯 Python
 > wheel。这是 **client-overlay-scaffold 形态 B 的轻量变体**（对比
-> [xmnn-dev](../xmnn-dev/README.md)：无 Nuitka、不编 TVM、apt clang）。
+> [native-dev](../native-dev/README.md)：无 Nuitka、不编 TVM、apt clang）。
 
 - **镜像**：`localhost/agent-monetize-dev:latest`（薄叠加；FROM rootless）
 - **Python**：`/opt/conda/bin/python` **cp314 GIL**（apache-tvm-ffi wheel
@@ -33,7 +33,8 @@
 pip install -e ".[compose]"          # 一次性（WSL2/Linux/macOS）
 
 invoke monetize.build --pip-mirror aliyun
-invoke monetize.up --skip-build
+# apt 遇 tuna 403（Ubuntu 26.04 pool）：.env 写 APT_MIRROR=aliyun（仅 .env/shell 生效）
+invoke monetize.up --skip-build       # 直接用上一步的镜像（up 恒 --no-build，C16；缺失即 fail-fast）
 invoke monetize.ps
 invoke monetize.build-native         # clang++ → native/build/score_opportunity.so
 invoke monetize.smoke                # 守卫 + backend=native 数值一致性
@@ -60,25 +61,32 @@ podman-compose down
 - **原生/参考一致性**：smoke 对固定输入断言两者结果容差 1e-9。
 - **wheel**：纯 Python（`agent_monetize-0.1.0-py3-none-any.whl`），
   .so 不入库（运行时从 native/build 加载）。
+- **重建不丢环境**：`pip install --user`/`pip install -e` 的落点
+  （`~/.local` user-site 与 `~/.local/bin` 控制台脚本）由命名卷
+  `monetize-userlocal` 持久化；Jupyter cookie/notebook 签名密钥由嵌套卷
+  `monetize-jupyter`（挂 `~/.local/share/jupyter`）持久化。普通
+  `invoke monetize.down/up` 重建容器后 pip 包与浏览器登录态均保留；
+  仅 `down --volumes` 清除（详见主仓排障 C-I13）。
 
 ## 参数表
 
 | 键 | 默认 | 用途 |
 |---|---|---|
 | MONETIZE_IMAGE_TAG/CONTAINER_NAME | localhost/agent-monetize-dev:latest / agent-monetize-dev | 镜像/容器 |
-| MONETIZE_SSH_PORT / JUPYTER_PORT | 2224 / 8892 | 宿主端口（错开 quant 2222/8888、xmnn 2223/8890） |
+| MONETIZE_SSH_PORT / JUPYTER_PORT | 2224 / 8892 | 宿主端口（错开 quant 2222/8888、native 2223/8890） |
 | MONETIZE_WORKSPACE | ../../workspace | → /workspace |
 | MONETIZE_SRC_PATH | ../../../../agent-monetize | agent-monetize 源码宿主路径（invoke 存在性硬校验） |
 | USER_PASSWORD / JUPYTER_TOKEN / SSH_PUBLIC_KEY / GRANT_SUDO | 空/空/空/yes | 凭证 |
-| PIP_MIRROR | official | pip 源（独立 build 用 --pip-mirror；.env 经 up 内联 build 生效） |
-| BASE_IMAGE（注释态） | rootless latest | 基底覆盖 |
+| PIP_MIRROR | official | pip 源；**无前缀构建参数单一事实源（C15）**，`invoke monetize.build` / `up` 内联 build / compose 段三处同键，`--pip-mirror` 只覆盖单次 build |
+| APT_MIRROR | official | apt 源（**无 CLI 旗标**，仅 shell/.env）：official=沿用基底内置源；aliyun/tuna=构建期替换 ubuntu.sources。tuna 对 Ubuntu 26.04(resolute) pool 偶发 403 时用 aliyun；build / `up` 内联 / compose 段三处同键（C15） |
+| BASE_IMAGE（注释态） | rootless latest | 基底覆盖（同样被 invoke build/up 读取，C15） |
 
 ## 与相关栈的关系
 
-| 维度 | 本栈（monetize） | xmnn-dev |
+| 维度 | 本栈（monetize） | native-dev |
 |---|---|---|
 | 源码 | apps/agent-monetize（单 .cc tvm-ffi） | external/chaos npu_tvm+npuusertools |
-| 工具链 | apt clang + pip apache-tvm-ffi | conda LLVM 22 + Nuitka 4.1.3 |
+| 工具链 | apt clang + pip apache-tvm-ffi | conda LLVM 22 + Nuitka 4.2.2 |
 | 编译产物 | score_opportunity.so（秒级） | libtvm.so（10-30 分钟）+ xmnn whl |
 | wheel | setuptools 纯 Python | Nuitka 原生编译 wheel |
 | ABI | 单一 cp314 GIL | base GIL + main cp314t 双 ABI |
@@ -92,3 +100,4 @@ podman-compose down
 | backend 一直是 reference | 先 `invoke monetize.build-native`；再确认 native/build/score_opportunity.so 存在 |
 | 裸 compose 后 workspace 出现空 agent-monetize 目录 | podman-compose 相对 source 预创建副产物（不影响真实挂载）；invoke 绝对路径不产生 |
 | clang++ 找不到 tvm_ffi.h | 镜像 pip 层异常；守卫会拦截，重跑 monetize.build |
+| notebook 单元格 `!xc`/`!xs` 报 not found | kernelspec PATH 缺 `~/.local/bin`（镜像 2026-10-13 前构建）；重跑 `invoke monetize.build` 即固化，或按排障 C-I13 热修 kernel.json |

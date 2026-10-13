@@ -14,20 +14,25 @@
 ai-engineering/index
 algorithmic-art/index
 best-practices/index
+cake-cutting-rule/index
 categories/index
 decisions/index
 docs-separation-guide/index
 engineering/index
+jieban-ai-monetization/index
 mdi/index
 mdi-research/index
+mindfulness-positivity/index
 myst-unified-ecosystem/index
 operations/index
+opensource-contest/index
 platform/index
 quality-assurance/index
 scripts/index
 tags/index
 tech/index
 templates/index
+trae-feature-watch/index
 troubleshooting/index
 anti-crawler-strategy-playbook
 caffe-ffi-perf-instrumentation-template
@@ -44,17 +49,24 @@ VENDOR-INTEGRATION
 
 | 分类 | 说明 | 入门推荐 |
 |------|------|---------|
-| **[Agent 平台与工具知识包（bundles）](../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md)** | 主流 AI Agent 开发平台与工具的系统学习知识包（DeepSeek Harness、The Agency、Open Code Review 等 10+ 个包） | [DeepSeek Harness 完全指南](../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/deepseek-harness/index.md) |
+| **[Agent 平台与工具知识包（bundles）](../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md)** | 主流 AI Agent 开发平台与工具的系统学习知识包（DeepSeek Harness、The Agency、Open Code Review 等 10+ 个包） | [DeepSeek Harness 完全指南](../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/deepseek-harness/index.md) |
 | **[OKF（开放知识格式）主题导航](../../projects/awesome-okf-xs/doc/bundles/meta/okf-ecosystem/index.md)** | OKF 格式规范 + OKF 工具链的统一主题索引（横跨协议接口与工具平台） | [OKF 主题导航](../../projects/awesome-okf-xs/doc/bundles/meta/okf-ecosystem/index.md) |
 | **[Python 3.14 标准库知识包](../../projects/awesome-okf-xs/doc/bundles/jishu/python/stdlib/index.md)** | Python 3.14 标准库系统学习（contextlib / contextvars / sys.monitoring / annotationlib / dataclasses / traceback） | [概述](../../projects/awesome-okf-xs/doc/bundles/jishu/python/stdlib/index.md) |
 | **[AI Engineering](ai-engineering/index.md)** | AI Agent 工程化领域知识库（Loop Engineering、Karpathy LLM Wiki 分析等） | [Loop Engineering 知识库](ai-engineering/concepts/loop-engineering-knowledge-base.md) |
 | **AI 教育** | AI 教育智能体与教育科技学习成果（OpenMAIC 知识包等） | [OpenMAIC 知识包](ai-education/openmaic/index.md) |
+| **[开源赛事](opensource-contest/index.md)** | 开源竞赛与政策型开发者大赛的参赛知识包（规则、赛程、评审机制、备赛方法论） | [2026 上海开源软件应用创新大赛知识包](opensource-contest/os2026-shanghai/index.md) |
 | **算法艺术** | 生成式艺术与算法创意探索（Atomic Emergence 等） | [Atomic Emergence 哲学](algorithmic-art/atomic-emergence/concepts/philosophy.md) |
+| **[xuan-compose 实战：手帐贴纸照片生成](tech/xuan-compose-sticker-wiki/index.md)** | 以「照片→手帐记忆卡+透明底贴纸双产物」为案例的 Compose 声明式容器编排 Wiki（podman-compose 翻译重构版 xuan-compose，含可运行配套工程） | [教程总览](tech/xuan-compose-sticker-wiki/00-overview.md) · [模式与验收清单](tech/xuan-compose-sticker-wiki/10-pattern-checklist.md) |
 | **工程化研究** | 深度学习原子化设计等工程方法论研究 | [AI Agent 原子化设计分析](engineering/deep-learning-atomic-design/concepts/ai-agent-atomic-design-analysis.md) |
+| **[正念与正面辨析](mindfulness-positivity/index.md)** | 心智概念知识包：正念（看见）与正面/积极心态（改写）的双教程、联系与区别，及「先接纳后重构」整合模式 | [正念教程](mindfulness-positivity/concepts/01-zheng-nian-mindfulness.md) · [正面教程](mindfulness-positivity/concepts/02-zheng-mian-positivity.md) · [联系与区别](mindfulness-positivity/concepts/03-connection-and-differences.md) |
+| **[切蛋糕法则](cake-cutting-rule/index.md)** | 公平分割方法论知识包：数学公平分割理论（你切我选/修剪法/移动刀/无嫉妒）、机制设计解读（切选分离与利益对齐）、职场处世应用（做蛋糕 vs 切蛋糕、动态股权），附实战示例与信源台账 | [01 数学公平分割理论](cake-cutting-rule/concepts/01-fair-division-theory.md) · [02 机制设计解读](cake-cutting-rule/concepts/02-you-cut-i-choose-mechanism.md) · [03 职场与处世应用](cake-cutting-rule/concepts/03-maker-vs-cutter-workplace.md) |
+| **[结伴 × AI 变现](jieban-ai-monetization/index.md)** | 行动知识包：高信任社群如何让成员在不消耗信任的前提下获得 AI 变现能力——双主体三元组诊断（真问题/真需求/真目标）、三域飞轮模式（群内零交易、站外赚钱、回站只讲含失败字段的案例）、可直接贴群公告的《愈多案例回流公约》与 90 天核对指标 | [三元组诊断](jieban-ai-monetization/concepts/02-real-problem-need-goal.md) · [案例回流公约](jieban-ai-monetization/concepts/04-case-reflow-covenant.md) |
+| **[三元组探究（OKF bundle）](../../projects/awesome-okf-xs/doc/bundles/guoxue/laozi/dao-san-triads/index.md)** | 心智/行动知识包：从「三」之本体论、时间三分到两组行动三元组，收敛为七条可当场判定的行动原则（2026-10-03 起归档于 OKF bundles，单一可信源） | [生存指南](../../projects/awesome-okf-xs/doc/bundles/guoxue/laozi/dao-san-triads/concepts/04-survival-guide.md) · [「三」本体论](../../projects/awesome-okf-xs/doc/bundles/guoxue/laozi/dao-san-triads/concepts/01-san-yi-birth.md) |
+| **[TRAE 生态特性监测](trae-feature-watch/index.md)** | 每周例行追踪官方更新日志、文档新特性、TraeWork 设计库与本地插件/skills 清单变化 | [最新一期周报（2026-10-01）](trae-feature-watch/2026-10-01-trae-feature-watch.md) |
 
 ## 🎯 如何使用
 
-- **刚接触 AI Agent 开发？** 从 [Agent 平台与工具知识包](../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) 开始，选择一个感兴趣的框架系统学习
+- **刚接触 AI Agent 开发？** 从 [Agent 平台与工具知识包](../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) 开始，选择一个感兴趣的框架系统学习
 - **想了解 AI 工程化方法论？** 阅读 [AI Engineering](ai-engineering/index.md) 下的 Loop Engineering 等知识库
 - **想寻找可复用模式？** 前往 [复盘与模式库](../retrospective/index.md) 获取项目自身沉淀的最佳实践与反模式
 

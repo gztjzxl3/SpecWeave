@@ -110,25 +110,25 @@ x-toml-ref: "../../../../../.meta/toml/docs/retrospective/reports/competitive-an
 
 | 产出物 | 路径 | 行数 |
 |--------|------|------|
-| 主教程索引页 | [open-code-review-wiki.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/open-code-review/index.md) | 34 |
-| 概述章节 | [00-overview.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) | 45 |
-| 核心概念章节 | [01-core-concepts.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) | 66 |
-| 安装配置章节 | [02-installation.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) | 54 |
-| 使用流程章节 | [03-usage.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) | 103 |
-| 关键优化章节 | [04-optimizations.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) | 133 |
-| 集成用法章节 | [05-integrations.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) | 95 |
-| 效果验证章节 | [06-effectiveness.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) | 97 |
-| 局限性章节 | [07-limitations.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) | 98 |
-| 总结章节 | [08-summary.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) | 89 |
-| FAQ章节 | [09-faq.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) | 148 |
-| 资源链接章节 | [10-resources.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/ai-agent/index.md) | 73 |
+| 主教程索引页 | [open-code-review-wiki.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/products/open-code-review/index.md) | 34 |
+| 概述章节 | [00-overview.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) | 45 |
+| 核心概念章节 | [01-core-concepts.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) | 66 |
+| 安装配置章节 | [02-installation.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) | 54 |
+| 使用流程章节 | [03-usage.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) | 103 |
+| 关键优化章节 | [04-optimizations.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) | 133 |
+| 集成用法章节 | [05-integrations.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) | 95 |
+| 效果验证章节 | [06-effectiveness.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) | 97 |
+| 局限性章节 | [07-limitations.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) | 98 |
+| 总结章节 | [08-summary.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) | 89 |
+| FAQ章节 | [09-faq.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) | 148 |
+| 资源链接章节 | [10-resources.md](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/frameworks/ai-agent/index.md) | 73 |
 | **小计** | **12个文件** | **1035行** | Commit: e8eaacce |
 
 ### 元数据配套产出物
 
 | 产出物 | 路径 | 说明 |
 |--------|------|------|
-| 11个TOML元数据文件 | [.meta/toml/docs/knowledge/learning/open-code-review-wiki/](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/open-code-review/index.md) | 由 fix-x-toml-ref.py --create-toml 自动创建 |
+| 11个TOML元数据文件 | [.meta/toml/docs/knowledge/learning/open-code-review-wiki/](../../../../../projects/awesome-okf-xs/doc/bundles/jishu/ai/products/open-code-review/index.md) | 由 fix-x-toml-ref.py --create-toml 自动创建 |
 | 知识库索引更新 | [docs/knowledge/README.md](../../insight-extraction/iot-ecosystem/retrospective-tuyaopen-analysis-20260630/knowledge/README.md) | learning 分类新增 Open Code Review 教程条目 |
 
 ### Spec 规划产出物
@@ -137,7 +137,7 @@ x-toml-ref: "../../../../../.meta/toml/docs/retrospective/reports/competitive-an
 |--------|------|------|
 | Spec定义 | [spec.md](../../../../../.trae/specs/retrospectives-insights/analyze-ai-anthropomorphic-interim-measures/spec.md) | 14个FR、13个AC、6个NFR、原子化决策记录 |
 | Spec任务 | [tasks.md](../../../../../.trae/specs/retrospectives-insights/analyze-ai-anthropomorphic-interim-measures/tasks.md) | L1-L6六阶段任务拆解 |
-| Spec清单 | [checklist.md](../../../../../.trae/specs/retrospectives-insights/analyze-ai-anthropomorphic-interim-measures/checklist.md) | 53个检查点全部通过 |
+| Spec清单 | [checklist.md](../../../../../.trae/specs/retrospectives-insights/analyze-ai-anthropomorphic-interim-measures/review.md) | 53个检查点全部通过 |
 
 ### 复盘报告产出物（本次闭环）
 

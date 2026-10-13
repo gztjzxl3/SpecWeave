@@ -85,39 +85,69 @@ flowchart LR
 **正确示例：**
 ```mermaid
 flowchart TB
-    S1["①语法结构层"] --> S2["②Subgraph层"]
-    S2 --> S3["③节点文本层"]
+    S1["1 语法结构层"] --> S2["2 Subgraph层"]
+    S2 --> S3["3 节点文本层"]
     START("1：开始") --> CHECK{"判断：条件成立？"}
 ```
 
-**根本原则**：Mermaid 节点文本中不要使用 Markdown 列表语法。需要编号时使用中文冒号（`1：`）、全角句点（`1．`）、圈号数字（`①`）等不触发列表的格式。
+**根本原则**：Mermaid 节点文本中不要使用 Markdown 列表语法。需要编号时使用普通阿拉伯数字加中文冒号（`1：`）或全角句点（`1．`）；不要使用带圈数字，VS Code 预览不支持该字符集。
 
-### 规则 2c：节点换行使用 `<br/>`
+### 规则 2c：节点文本保持单行
 
-Mermaid 节点文本内的换行**统一使用 HTML 的 `<br/>` 标签**，禁止使用 `\n` 转义字符。
+面向 VS Code 预览的 Mermaid 节点与标签文本必须保持单行。需要分隔内容时使用空格；禁止使用 `<br/>` 或 `\n` 换行标记。
 
-**为什么？** `\n` 在 flowchart/stateDiagram 节点中不会被解释为换行（部分渲染器显示为字面文本，部分压缩为单行）；虽然 `\n` 在 sequenceDiagram 的 Note 和消息文本中可以换行，但统一使用 `<br/>` 可以避免记忆上下文差异。
+**为什么？** VS Code 内置预览不支持节点内 HTML 换行标签；`\n` 在不同图表和渲染器中的行为也不一致。统一压平为单行，避免生成的图表随后被兼容性检查拒绝。
 
 **错误示例：**
 ```
 flowchart LR
     A["第一行\n第二行\n第三行"]
+    B["第一行<br/>第二行"]
 ```
 
 **正确示例：**
 ```mermaid
 flowchart LR
-    A["第一行<br/>第二行<br/>第三行"]
+    A["第一行 第二行 第三行"]
 ```
 
 ```mermaid
 sequenceDiagram
     participant A as "开发者"
-    Note over A: 第一行<br/>第二行
-    A->>B: "消息文本<br/>可以换行"
+    Note over A: 第一行 第二行
+    A->>B: "消息文本可以保持单行"
 ```
 
-**记忆口诀**：Mermaid 中换行一律用 `<br/>`，不要用 `\n`。
+**记忆口诀**：Mermaid 文本保持单行，需要分隔时用空格。
+
+### 规则 2d：禁止反斜杠转义引号（标签内嵌套引用）
+
+在已被双引号包裹的节点标签、边标签、subgraph 标题内再表达"引用"语义时，**禁止使用 C/JSON 风格的反斜杠转义 `\"`**，必须改用中文弯引号 `“”`（也可按语境改用单引号 `'` 或 HTML 实体 `&quot;`）。
+
+**为什么？** Mermaid 词法器不识别 `\"` 转义序列：反斜杠被当作普通字符，紧随其后的 `"` 仍会提前终结当前标签，进而导致整图 parse error。该问题经 Mermaid 10 与 Mermaid 11 双版本真实解析器实测均为**致命错误**，在 GitHub 等相对宽松的渲染环境中同样无法渲染；外层"再加引号"无法绕过，因为问题出在引号嵌套本身。
+
+**错误示例（普通围栏，故意不渲染）：**
+```
+flowchart TD
+    P2 -->|"API文档+\"先查lib\"约定+PR检查"| P3
+    E["执行\"代码示例三查\""]
+    H["误点\"分享\"按钮(footer区域判断错误)"]
+```
+
+**正确示例：**
+```mermaid
+flowchart TD
+    P2 -->|"API文档+“先查lib”约定+PR检查"| P3
+    E["执行“代码示例三查”"]
+    H["误点“分享”按钮(footer区域判断错误)"]
+```
+
+**边界说明：**
+- 仅当反斜杠**紧邻 ASCII 双引号**（字面 `\"`）时违规；Windows 路径中的单反斜杠（如 `C:\Users`）与不含反斜杠的普通引号、中文弯引号、`&quot;` 均不受影响
+- `%%` 注释内的 `\"` 不检测
+- 自动化检查对应 rule_id 为 `mermaid.vscode.escaped_quote`，适用于全部图类型，每条物理行最多报告一次；该规则**只检测、不自动修复**（`--fix` 不处理），需人工改写以保留语义
+
+**记忆口诀**：标签里要再引一层，用中文弯引号 `“”`，绝不写 `\"`。
 
 ### 规则 3：Subgraph 安全格式
 
@@ -186,10 +216,10 @@ Mermaid 渲染错误存在"分层屏蔽"效应——结构层错误会阻止解�
 
 ```mermaid
 flowchart TB
-    S1["①语法结构层<br/>括号闭合/无空行"] --> S2["②Subgraph层<br/>ID合法/标题格式"]
-    S2 --> S3["③节点文本层<br/>Markdown触发检查"]
-    S3 --> S4["④边标签层<br/>特殊字符引号"]
-    S4 --> S5["⑤Style层<br/>颜色值/样式语法"]
+    S1["1：语法结构层 括号闭合/无空行"] --> S2["2：Subgraph层 ID合法/标题格式"]
+    S2 --> S3["3：节点文本层 Markdown触发检查"]
+    S3 --> S4["4：边标签层 特殊字符引号"]
+    S4 --> S5["5：Style层 颜色值/样式语法"]
     style S1 fill:#d4edda
     style S5 fill:#f8d7da
 ```
@@ -298,14 +328,14 @@ flowchart LR
         RELAY["relay IO中继"]
     end
     WSL_EXE -->|COM| WSLSVC
-    WSL_EXE <-->|5 relay IO中继直连优化| RELAY
+    WSL_EXE <-->|"5 relay IO中继直连优化"| RELAY
 ```
 
 **错误示例（VS Code 中会渲染失败）**：
 ```
 flowchart LR
-    A["用户输入<br/>wslc/wsl命令"] --> B["CoreMain 初始化<br/>CoInitialize"]
-    WSLSVC <-->|"hvsocket⑤<br/>直接IO中继<br/>【性能优化】"| RELAY
+    A["用户输入 wslc/wsl命令"] --> B["CoreMain 初始化 CoInitialize"]
+    WSLSVC <-->|"hvsocket 5 直接IO中继 性能优化"| RELAY
 ```
 
 **实践原则**：
@@ -353,8 +383,9 @@ python .agents/scripts/check-mermaid.py
 11. 中文方括号【】（VS Code预览误解析，规则8）
 12. Unicode箭头符号→←↑↓（VS Code兼容性警告，规则8）
 13. subgraph内嵌套direction（VS Code布局异常，规则8）
+14. 标签内反斜杠转义双引号 `\"`（Mermaid 10/11 均解析失败，规则2d；只检测不自动修复）
 
-支持 `--fix` 参数自动修复部分问题（空行、引号、`\n`→空格、<br/>移除、带圈数字替换、中文方括号替换、箭头符号替换）。
+支持 `--fix` 参数自动修复部分问题（空行、引号、`\n`→空格、<br/>移除、带圈数字替换、中文方括号替换、箭头符号替换）。第 14 项转义引号不支持自动修复，需人工改为中文弯引号。
 
 > ⚠️ **注意**：check-mermaid.py 只检查` ```mermaid `围栏内的代码。如果你错误地将不完整片段/错误示例放在mermaid围栏中，脚本会检测到错误；但如果你应该使用mermaid围栏却误用了普通围栏（图表无法渲染），脚本无法检测——围栏选择是人工判断，参见规则6。
 
@@ -395,7 +426,8 @@ python .agents/scripts/check-links.py --path <产物目录>
 - [ ] 代码块内无任何空行
 - [ ] 含中文/特殊字符/空格的节点文本已用双引号包裹
 - [ ] 节点文本无「数字.空格」「- 空格」「* 空格」等列表触发模式
-- [ ] 节点内换行统一使用 `<br/>`，未使用 `\n`
+- [ ] 标签内嵌套引用使用中文弯引号 `“”`（或单引号/`&quot;`），无反斜杠转义 `\"`
+- [ ] Mermaid 节点与标签文本保持单行，需要分隔时使用空格
 - [ ] Subgraph 使用 `ID ["标题"]` 格式，ID 为纯英文
 - [ ] 边标签使用 `-->|"标签"|` 格式（中文/特殊字符加引号）
 - [ ] participant 别名含中文/空格已加双引号（sequenceDiagram）
@@ -404,4 +436,4 @@ python .agents/scripts/check-links.py --path <产物目录>
 - [ ] 修复后双验证：已对修复目标文件**和**新创建的产物文件运行check-mermaid.py
 - [ ] 运行 `check-mermaid.py` 无错误无警告
 
-> 来源：Mermaid 渲染兼容性问题修复复盘（retrospective-mermaid-rendering-fix-20260626），Mermaid 渲染回归治理失效复盘（retrospective-mermaid-rendering-regression-20260629）补充规则2c换行符规范与自动化检查第6-8项；Mermaid列表触发错误第一性原理修复复盘（retrospective-mermaid-list-fix-first-principles-20260710）补充规则6（代码示例围栏选择）和规则7（产物双验证）。
+> 来源：Mermaid 渲染兼容性问题修复复盘（retrospective-mermaid-rendering-fix-20260626），Mermaid 渲染回归治理失效复盘（retrospective-mermaid-rendering-regression-20260629）补充规则2c换行符规范与自动化检查第6-8项；Mermaid列表触发错误第一性原理修复复盘（retrospective-mermaid-list-fix-first-principles-20260710）补充规则6（代码示例围栏选择）和规则7（产物双验证）；shared-lib-gravity 模式文档 Mermaid 渲染修复（2026-10-08，Mermaid 10/11 双版本实测确认 `\"` 致命）补充规则2d（禁止反斜杠转义引号）与自动化检查第14项（rule_id `mermaid.vscode.escaped_quote`）。

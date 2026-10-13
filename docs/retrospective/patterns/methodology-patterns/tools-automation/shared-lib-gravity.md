@@ -65,11 +65,11 @@ x-toml-ref: "../../../../../.meta/toml/docs/retrospective/patterns/methodology-p
 
 ```mermaid
 flowchart TD
-    P1["阶段一：种子期<br/>(1-2个模块)<br/>强制提取基础功能"]
-    P2["阶段二：临界点<br/>(3-4个模块)<br/>主动推广+文档化"]
-    P3["阶段三：自增长<br/>(≥5个模块)<br/>引力效应自发推动"]
+    P1["阶段一：种子期 (1-2个模块) 强制提取基础功能"]
+    P2["阶段二：临界点 (3-4个模块) 主动推广+文档化"]
+    P3["阶段三：自增长 (≥5个模块) 引力效应自发推动"]
     P1 -->|"强制提取project.py/cli.py等基础设施"| P2
-    P2 -->|"API文档+\"先查lib\"约定+PR检查"| P3
+    P2 -->|"API文档+“先查lib”约定+PR检查"| P3
     P3 -->|"开发者主动复用，正反馈循环"| P3
     style P1 fill:#f8d7da,stroke:#dc3545
     style P2 fill:#fff3cd,stroke:#ffc107

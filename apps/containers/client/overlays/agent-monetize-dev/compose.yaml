@@ -28,10 +28,25 @@ services:
       args:
         BASE_IMAGE: ${BASE_IMAGE:-localhost/jupyter-podman-rootless:latest}
         PIP_MIRROR: ${PIP_MIRROR:-official}
+        APT_MIRROR: ${APT_MIRROR:-official}
     ports:
       - "${MONETIZE_SSH_PORT:-2224}:22"
       - "${MONETIZE_JUPYTER_PORT:-8892}:8888"
     volumes:
+      # ── B-scheme: 直连宿主 rootless podman daemon（绕过嵌套 userns）──
+      # 容器内 Notebook/CLI 的 PodmanClient 经此 socket 复用宿主 daemon。
+      # source 必须 == target == environment.HOST_PODMAN_SOCK（entrypoint
+      # 按该值 test -S 并建符号链接/属组衔接）。invoke up 预检宿主 socket
+      # 就绪并注入实际路径（UID 不硬编码）；1000 缺省仅供裸 podman-compose
+      # 在 WSL2 惯例 UID 下使用，物理机 UID 不同在 .env 覆盖
+      # HOST_PODMAN_SOCK/PODMAN_RUNTIME_UID。create_host_path: false——
+      # socket 源缺失必须硬失败，禁止 os.makedirs 误建目录冒充 socket；
+      # 缺失时 entrypoint 的 DinP 回退在嵌套 rootless 下被 newuidmap 拒绝。
+      - type: bind
+        source: ${HOST_PODMAN_SOCK:-/run/user/1000/podman/podman.sock}
+        target: ${HOST_PODMAN_SOCK:-/run/user/1000/podman/podman.sock}
+        bind:
+          create_host_path: false
       # 通用工作区（invoke 路径解析为绝对 POSIX 并自动 mkdir；
       # 裸 compose 的相对路径相对本文件，../../workspace = client/workspace）
       - type: bind
@@ -47,9 +62,27 @@ services:
         target: /workspace/agent-monetize
         bind:
           create_host_path: true
+      # 用户态 Python 安装命名卷（pip install --user / pip install -e 的落点）：
+      # ~/.local 承载 user-site（lib/python3.14）与 bin/ 控制台脚本；不持久化
+      # 时 down/up 重建后 editable finder 与脚本随临时层全丢（2026-10-13 实证，
+      # 排障 C-I13）。新卷首次 copy-up 继承镜像内 devuser 属主空目录，entrypoint
+      # 另幂等 chown -R 兜底。必须列在下方 monetize-jupyter 之前：后者以嵌套
+      # 子挂载覆盖卷内 share/jupyter，顺序错会反向遮蔽登录态卷。down 默认保留。
+      - monetize-userlocal:/home/devuser/.local
+      # Jupyter 登录态命名卷（cookie_secret/notebook_secret）：不持久化时密钥随
+      # 容器临时层轮换，down/up 重建后浏览器旧标签页被踢回登录。镜像内该目录
+      # 属主 1000:1000 mode 700，新卷 copy-up 属主保持。down 默认保留。
+      - monetize-jupyter:/home/devuser/.local/share/jupyter
+      # SSH host key 命名卷：挂上后基底 entrypoint 以 `mountpoint -q` 切到持久
+      # 模式（key 存卷内、sshd_config 的 HostKey 指向该目录），down/up 重建容器
+      # 不再轮换主机指纹，客户端 known_hosts 无需反复 ssh-keygen -R 清理；
+      # 未挂载则回退容器层生成并打 WARN（重建即轮换）。down 默认保留。
+      - monetize-ssh-host-keys:/var/lib/jpman/ssh-host-keys
     environment:
       # 凭证四变量（USER_PASSWORD/JUPYTER_TOKEN/SSH_PUBLIC_KEY/GRANT_SUDO）
       # 与 rootless 三必需由 rootless-base 继承，勿在此重复声明。
+      # ── B-scheme：宿主 podman socket 同路径挂载点（见 volumes 首段注释）──
+      HOST_PODMAN_SOCK: "${HOST_PODMAN_SOCK:-/run/user/1000/podman/podman.sock}"
       # 源码调试：src 布局包经 PYTHONPATH 直导（改源码即时生效）
       PYTHONPATH: /workspace/agent-monetize/src
       # ctypes 加载 score_opportunity.so 时解析其依赖 libtvm_ffi.so；
@@ -57,3 +90,8 @@ services:
       LD_LIBRARY_PATH: /opt/conda/lib/python3.14/site-packages/tvm_ffi/lib
     labels:
       org.specweave.component: "monetize"
+
+volumes:
+  monetize-userlocal: {}
+  monetize-jupyter: {}
+  monetize-ssh-host-keys: {}

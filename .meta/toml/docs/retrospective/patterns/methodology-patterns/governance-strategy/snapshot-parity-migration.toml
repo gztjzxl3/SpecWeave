@@ -1,0 +1,13 @@
+id = "snapshot-parity-migration"
+domain = "methodology"
+layer = "methodology"
+maturity = "L1"
+validation_count = 1
+reuse_count = 0
+documentation_level = "standard"
+source = "docs/retrospective/patterns/methodology-patterns/governance-strategy/snapshot-parity-migration.md"
+
+[bindings]
+rules = []
+references = ["format-evidence-over-memory-pattern", "large-scale-duplication-elimination", "no-touch-list", "batched-creation-independent-review", "vendor-lifecycle-governance"]
+skills = ["vendor-snapshot-parity"]

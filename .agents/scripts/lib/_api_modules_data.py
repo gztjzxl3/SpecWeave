@@ -2,6 +2,16 @@
 """lib/_api_modules_data.py — lib/ API 文档模块元数据
 
 内部数据模块，由 lib.api_docs 导入使用，不直接对外暴露。
+
+## 条目 schema
+
+每条记录描述一个 API 参考分片，字段语义如下：
+
+- ``num`` / ``slug`` / ``title`` / ``filename``：序号、标识、标题与分片文件名（必填）
+- ``body``：分片正文行列表；生成器自动补充 frontmatter、`## 相关模式` 与导航行
+- ``handwritten``：为 ``True`` 时表示该分片由人工维护，生成器只登记索引与导航，
+  **不写 body、不覆写分片文件**（如 15-testing、16-sphinx-config）
+- ``desc``：README 导航表的「说明」列文本；缺省时由 ``title`` 的副标题推导
 """
 
 
@@ -254,6 +264,32 @@ def get_module_definitions():
         ],
     })
     modules.append({
+        "num": 10,
+        "slug": "docs_as_product",
+        "title": "lib.docs_as_product — 文档即产品校验",
+        "filename": "10-docs-as-product.md",
+        "desc": "文档即产品校验（Diátaxis 四型/G1-G4+V门/元数据漂移/读者契约/M1-M5）",
+        "body": [
+            "把《文档即产品经营法》模式固化为可执行校验：Diátaxis 四型分区、G1–G4 + V 门、元数据漂移（F-021）、读者契约与 M1–M5 指标脚手架。入口脚本为 `.agents/scripts/docs-as-product.py`。\n",
+            "| 函数 | 签名 | 说明 |",
+            "|------|------|------|",
+            "| `scan_docs` | `(root: str \\| Path, config=None) -> DocsTree` | 扫描文档目录，解析 frontmatter/head/toctree/orphan/标题/首段 |",
+            "| `check_structure` | `(tree: DocsTree) -> Report` | 校验 Diátaxis 四型分区与 toctree/orphan 一致性 |",
+            "| `check_quality_gates` | `(root, *, run_external=True, config=None) -> Report` | 执行 G1–G4 与 V 门；外部工具缺失降级 WARN |",
+            "| `check_metadata_drift` | `(tree: DocsTree, config=None) -> Report` | head 仅允许跨版本稳定字段；canonical 与基准核对（F-021） |",
+            "| `check_reader_contract` | `(docs_root: str \\| Path) -> Report` | 校验四类读者各有可执行验收任务 |",
+            "| `scaffold_metrics` | `(root, out_dir: str \\| Path) -> list[Path]` | 生成 M1–M5 面板脚手架（metrics.json + metrics.md） |\n",
+            "**示例**：\n",
+            "```python",
+            "from lib.docs_as_product import scan_docs, check_structure",
+            "",
+            "tree = scan_docs('docs')",
+            "report = check_structure(tree)",
+            "print(report.passed)  # 无 error 级发现时为 True",
+            "```\n",
+        ],
+    })
+    modules.append({
         "num": 11,
         "slug": "process",
         "title": "lib.process — 进程探测与安全终止",
@@ -351,6 +387,23 @@ def get_module_definitions():
             "| `SPEC_MATCH_THRESHOLD` / `META_DOC_KEYWORDS` | - | Spec 一致性检查参数 |",
             "| `SCAN_DIRS` / `TARGETS` / `MANUAL_DESCRIPTIONS` | - | 导航生成器配置 |\n",
         ],
+    })
+    # —— 手写分片：仅登记索引信息，body 由人工维护，生成器不得覆写 —— #
+    modules.append({
+        "num": 15,
+        "slug": "testing",
+        "title": "lib.testing — 测试辅助工具库",
+        "filename": "15-testing.md",
+        "desc": "测试辅助工具库（多智能体边界场景模板）",
+        "handwritten": True,
+    })
+    modules.append({
+        "num": 16,
+        "slug": "sphinx_config",
+        "title": "lib.sphinx_config — Sphinx + MyST 文档构建配置层",
+        "filename": "16-sphinx-config.md",
+        "desc": "Sphinx + MyST 文档构建可复用配置层（2预设/弹性扩展/MyST兼容钩子/主题降级队列）",
+        "handwritten": True,
     })
     return modules
 

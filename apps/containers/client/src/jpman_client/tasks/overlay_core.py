@@ -1,4 +1,4 @@
-"""数据驱动的 podman-compose 叠加栈编排内核（quant/xmnn/monetize 同族共享）。
+"""数据驱动的 podman-compose 叠加栈编排内核（quant/native/monetize 同族共享）。
 
 设计目标（OKF 重构 R→I→E）：
   - 每个叠加栈只声明一份 ``StackSpec``（身份/端口/挂载/构建参数/冒烟形态/
@@ -28,6 +28,7 @@ import platform
 import re
 import shlex
 import shutil
+import struct
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,15 +37,39 @@ from typing import Optional
 from invoke import Context, task
 from invoke.exceptions import Exit
 
-from .manage import _load_env_overrides, _project_root
+# B-scheme 宿主 rootless socket 预检/路径推导的唯一事实源（与 invoke run
+# 路径 client_core.run_container 同源；禁止在本模块私有副本）。
+from jpman_common.connection import (
+    bsock_missing_guidance,
+    ensure_host_podman_socket,
+    podman_sock_path,
+)
+
+from .client_core import (
+    TORCH_FLAVOR_LABEL,
+    image_inspect_info,
+    load_image,
+    save_image,
+)
+from .manage import _load_env_overrides, _project_root, _resolve_bool
 from .utils import (
+    UP_READY_TIMEOUT_S,
+    archive_flavor,
     check_runtime_ready,
+    default_build_cache_dir,
     detect_runtime,
+    ensure_bind_tree_accessible,
     ensure_workspace_checkpoint_writable,
+    ensure_world_writable_dir,
     ensure_wsl_rootless_runtime,
+    ensure_wsl_user_session,
+    find_latest_image_tar,
     run_cmd,
     run_in_wsl_bridge,
     to_posix_path,
+    validate_manifest_integrity,
+    wait_http_ready,
+    wsl_bridge_diagnosis,
 )
 
 # podman-compose 给栈资源打的项目标签（知识包 05：标签即数据库；SDK/CLI 接缝）
@@ -60,6 +85,44 @@ _SS_HOLDER_RE = re.compile(r'users:\(\("(?P<comm>[^"]+)",pid=(?P<pid>\d+)')
 _CONMON_CID_RE = re.compile(r"(?:\s|^)-c\s+(?P<cid>[0-9a-f]{64})\b")
 _CONMON_NAME_RE = re.compile(r"(?:\s|^)-n\s+(?P<name>\S+)")
 
+# TORCH_FLAVOR 白名单（C18）：""=不装 torch；cpu=CPU wheel；cu130=CUDA 13.0 wheel。
+# 取值直接作为 download.pytorch.org/whl/<flavor> 索引路径，故必须是**白名单**而非
+# 自由文本（构建期网络请求目标不可由用户输入任意拼接）。
+TORCH_FLAVORS: tuple[str, ...] = ("", "cpu", "cu130")
+
+# GPU 设备形态表：顺序即**自动探测优先级**（`(设备路径, 覆盖文件形态)`）。
+# 形态只决定叠加哪个覆盖文件——``generic`` 用 ``compose.gpu.yaml``，其余用
+# ``compose.gpu.<形态>.yaml``（缺失则回退 generic，见 :func:`gpu_override_file`）。
+# 表驱动而非 if/elif 硬编码：新增平台（如 Jetson /dev/nvhost-*）只加一行。
+GPU_DEVICE_FORMS: tuple[tuple[str, str], ...] = (
+    ("/dev/dri", "generic"),
+    ("/dev/dxg", "wsl"),
+)
+
+# WSL2 GPU 半虚拟化：``/dev/dxg`` 只是半虚拟化通道，libcuda 由 WSL 宿主提供。
+# 下列三条路径**同为最小充分条件**（2026-09-20 两轮实测）：
+#   ① libcuda.so.1 —— 缺则容器内 ``CDLL("libcuda.so.1")`` 直接失败；
+#   ② libdxcore.so —— 缺则 CDLL 成功但 ``cuInit()`` 返 100(CUDA_ERROR_NO_DEVICE)；
+#   ③ /usr/lib/wsl/drivers —— Windows 驱动库目录，缺则同样 cuInit 100。
+# **「库能加载」≠「设备可见」**：②③ 是第二轮（装 cu130 torch 复核设备枚举）
+# 才暴露的——首轮只验到 ① 的 CDLL 层面，故一度把「单文件挂载」当成充分条件。
+# 挂载形态见 compose.gpu.wsl.yaml 文件头（零特权；--privileged 有效但非必要）。
+WSL_GPU_PATHS: tuple[str, ...] = (
+    "/usr/lib/wsl/lib/libcuda.so.1",
+    "/usr/lib/wsl/lib/libdxcore.so",
+    "/usr/lib/wsl/drivers",
+)
+
+# NVIDIA 原生 Linux（非 WSL）GPU 经 CDI 透传：设备节点 + 用户态库（libcuda、
+# nvidia-smi 等）统一由 ``nvidia-ctk cdi generate`` 生成的 CDI 规格注入容器。
+# 反常识点（2026-09-20 真机故障）：加载 nvidia_drm 后，**纯 N 卡宿主也会
+# 注册 /dev/dri**（card0/1 + renderD128/129）。故自动探测不能把「/dev/dri
+# 存在」当作 Intel/AMD 的充分判据——N 卡走 /dev/dri 只透传 DRM 渲染节点，
+# 不注入 libcuda/nvidia-smi，容器内 CUDA 必不可用。自动探测必须先满足
+# 「CDI 规格已生成 **且** /dev/nvidiactl 存在」双条件，优先选 CDI 引用。
+NVIDIA_CDI_TOKEN = "nvidia.com/gpu=all"
+NVIDIA_CONTROL_NODE = "/dev/nvidiactl"
+
 
 # ---------------------------------------------------------------------------
 # 声明式规格
@@ -73,7 +136,12 @@ class SourceMount:
     - env：注入子进程环境的变量名（compose.yaml 内同名插值）。
     - default_rel：缺省相对路径；相对 anchor 解析（repo=仓库根=client 上三级，
       client=client 根；external/chaos 类源码锚仓库根而非 client）。
-    - must_exist：是否做宿主存在性硬校验（源码树 True；workspace 走自动 mkdir）。
+    - must_exist：是否做宿主存在性硬校验（源码树 True：缺失 Exit 1）；
+      False = temp 类目录，缺失时幂等 mkdir（与 workspace 同语义），
+      默认相对路径可经 ``..`` 上溯锚点之外的宿主目录。
+    - writable：容器内 devuser 是否需要对该树**写**权限（prepare_env 权限
+      门禁据此放宽到 a+rwX/777 或仅 a+rX/755）。models 等纯数据树设 False；
+      temp 类挂载由 ensure_world_writable_dir 只放宽根目录（非递归）。
     """
 
     env: str
@@ -81,6 +149,7 @@ class SourceMount:
     label: str
     anchor: str = "repo"  # "repo" | "client"
     must_exist: bool = True
+    writable: bool = True
 
 
 @dataclass(frozen=True)
@@ -88,10 +157,10 @@ class SmokeSpec:
     """冒烟形态（三栈差异的声明式描述）。
 
     - python：栈内解释器绝对路径（quant 用 main env free-threaded 之外的
-      /opt/conda/envs/main/bin/python；xmnn/monetize 用 base env /opt/conda/bin/python）。
+      /opt/conda/envs/main/bin/python；native/monetize 用 base env /opt/conda/bin/python）。
     - exec_scripts：栈运行时经 ``compose exec`` 逐个执行的脚本（相对 smoke_dir）。
     - standalone_scripts：栈未运行时经 ``podman run --rm --entrypoint`` 逐个
-      执行的脚本（quant 为全部 3 个纯 ONNX；xmnn/monetize 仅工具链守卫，
+      执行的脚本（quant 为全部 3 个纯 ONNX；native/monetize 仅工具链守卫，
       挂载/原生冒烟要求先 up）。
     """
 
@@ -121,14 +190,14 @@ class StackSpec:
     """单个 podman-compose 叠加栈的完整声明（compose.yaml 之外的 Python 侧事实源）。"""
 
     # —— 身份 ——
-    namespace: str  # invoke 命名空间/横幅前缀：quant | xmnn | monetize
+    namespace: str  # invoke 命名空间/横幅前缀：quant | native | monetize
     project: str  # compose --project-name（标签 io.podman.compose.project 值）
     service: str  # compose 服务名（io.podman.compose.service 值）
     overlay_subdir: str  # overlays/<本目录>（compose.yaml/Containerfile 所在）
     containerfile: str  # overlay 目录内的 Containerfile 文件名
     default_image_tag: str
     default_base_image: str
-    env_prefix: str  # QUANT | XMNN | MONETIZE（衍生 _WORKSPACE/_IMAGE_TAG/端口键）
+    env_prefix: str  # QUANT | NATIVE | MONETIZE（衍生 _WORKSPACE/_IMAGE_TAG/端口键）
 
     # —— 任务表面文案（--list 黄金快照逐字保持） ——
     docs: TaskDocs
@@ -137,15 +206,24 @@ class StackSpec:
     # —— 端口/横幅 ——
     ssh_default: str
     jupyter_default: str
-    jupyter_banner_note: str = ""  # xmnn 的「（内核：Python 3.14 (xmnn dev)）」
+    jupyter_banner_note: str = ""  # native 的「（内核：Python 3.14 (native dev)）」
     build_done_label: str = "叠加镜像"  # 构建完成文案（quant 历史为「量化叠加镜像」）
     build_next_hint: str = ""  # 构建完成行尾补充（quant：（启动声明式栈））
-    up_footer: tuple[str, ...] = ()  # 空=自动单行；xmnn 用三行（含编译/打包提示）
+    up_footer: tuple[str, ...] = ()  # 空=自动单行；native 用三行（含编译/打包提示）
 
     # —— compose 文件/构建参数差异 ——
-    gpu_override: bool = False  # 存在 compose.gpu.yaml 且 up/smoke 暴露 --gpu（quant）
-    conda_mirror: bool = False  # build 暴露 --conda-mirror / CONDA_MIRROR（xmnn）
+    gpu_override: bool = False  # 存在 compose.gpu.yaml 且 up/smoke 暴露 --gpu（quant/native）
+    gpu_device_env: str = ""  # GPU 设备插值键（空=不插值，设备项写死；quant/native 均为 GPU_DEVICE）
+    conda_mirror: bool = False  # build 暴露 --conda-mirror / CONDA_MIRROR（native）
+    apt_mirror: bool = False  # build 透传 APT_MIRROR build-arg（monetize；仅 .env/shell，无 CLI 旗标）
+    torch_flavor: bool = False  # build 暴露 --torch / TORCH_FLAVOR（native；空|cpu|cu130）
     auto_shortflags: bool = False  # invoke 自动短选项（quant 历史为默认开启）
+
+    # —— 透传覆盖（与 GPU 同族 opt-in，默认全关）——
+    passthrough_overlay: bool = False  # compose.passthrough.yaml：host 网络 + D-Bus
+    usb_overlay: bool = False  # compose.passthrough.usb.yaml：USB 总线
+    gui_overlay: bool = False  # compose.passthrough.gui(.x11).yaml：Wayland/X11 显示
+    passthrough_tag_default: str = ""  # 透传栈默认镜像 tag（独立身份，同镜像内容）
 
     # —— 挂载/冒烟/桥接 ——
     source_mounts: tuple[SourceMount, ...] = ()
@@ -154,6 +232,9 @@ class StackSpec:
 
     # —— 长任务未运行提示（默认自动生成；monetize 指向 --skip-build） ——
     not_running_hint: str = ""
+
+    # —— 离线模式（声明后工厂额外生成 save/load 任务，up 暴露 --offline） ——
+    supports_offline: bool = False
 
     # 便捷衍生键
     @property
@@ -165,12 +246,20 @@ class StackSpec:
         return f"{self.env_prefix}_IMAGE_TAG"
 
     @property
+    def passthrough_image_env(self) -> str:
+        return f"{self.env_prefix}_PASSTHROUGH_IMAGE_TAG"
+
+    @property
     def ssh_port_env(self) -> str:
         return f"{self.env_prefix}_SSH_PORT"
 
     @property
     def jupyter_port_env(self) -> str:
         return f"{self.env_prefix}_JUPYTER_PORT"
+
+    @property
+    def offline_env_key(self) -> str:
+        return f"{self.env_prefix}_OFFLINE"
 
     @property
     def stack_not_running_hint(self) -> str:
@@ -194,11 +283,15 @@ def gate_platform(spec: StackSpec) -> None:
 
     桥接成功时 run_in_wsl_bridge 已在发行版内完整执行任务，本进程 Exit(0)
     收尾（WSL2 内 Python 报 Linux 直接放行，不进入 Windows 分支）。
-    Linux 放行路径先做 WSL rootless 运行时目录自愈（VM 回收后
-    /run/user/<uid> 缺失致 podman exit 125；非 WSL 平台零副作用）。
+    Linux 放行路径先做两级 WSL 幂等自愈（VM 回收后裸启动发行版时）：
+      ① `ensure_wsl_rootless_runtime`：/run/user/<uid> 目录（podman exit 125）；
+      ② `ensure_wsl_user_session`：嵌套 systemd 用户会话（bus + podman.socket，
+         喂给其后的 B-scheme 门禁与 --passthrough D-Bus 门禁）。
+    非 WSL 平台零副作用。
     """
     if platform.system() != "Windows":
         ensure_wsl_rootless_runtime()
+        ensure_wsl_user_session()
         return
     distro = run_in_wsl_bridge(extra_env_keys=spec.bridge_env_keys)
     if distro is not None:
@@ -208,7 +301,14 @@ def gate_platform(spec: StackSpec) -> None:
     client_posix = to_posix_path(_project_root())
     print(f"[{spec.namespace}] ⚠ Windows 原生 CPython 不支持 podman-compose 编排路径（其短语法")
     print("        挂载/路径解析在 Windows 原生存在已知缺陷），且未能自动桥接至")
-    print("        WSL 发行版。请检查：")
+    print("        WSL 发行版。")
+    diagnosis = wsl_bridge_diagnosis()
+    if diagnosis:
+        # 只给 wsl -l -v 会把「Running 但 VM 层不可用」送进死胡同，先给实测原因
+        print(f"        桥接探测失败：{diagnosis}")
+        print("        若 wsl -l -v 显示该发行版 Running 而探测仍失败，先重置 WSL 虚拟机：")
+        print("          wsl --shutdown     # 关闭全部发行版进程，随后重跑本命令")
+    print("        请检查：")
     print("          · WSL 发行版可启动（wsl --list --verbose），或设置")
     print("            COMPOSE_WSL_DISTRO=<发行版> 指定桥接目标（none=关闭桥接）")
     print("          · 发行版内已安装 client 与 compose 依赖：")
@@ -252,12 +352,46 @@ def ensure_runtime_ready(spec: StackSpec) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_path(spec: StackSpec, raw: str, *, must_exist: bool, label: str) -> str:
-    """相对路径相对 invoke cwd 解析；转绝对 POSIX；可选存在性硬校验。"""
+def _resolve_path(
+    spec: StackSpec,
+    raw: str,
+    *,
+    must_exist: bool,
+    label: str,
+    create: bool = False,
+    env_key: str = "",
+) -> str:
+    """相对路径相对 invoke cwd 解析；转绝对 POSIX；可选存在性硬校验 / 幂等创建。
+
+    ``create=True``（temp 类目录）与 ``must_exist=True`` 互斥：前者缺失即建
+    （目录不存在属正常首态），后者缺失 Exit(1)（源码树类，静默创建会掩盖配错）。
+
+    越界解析守卫（2026-09-23）：含 ``..`` 的相对值/缺省值在浅布局检出下
+    （如 WSL ``/mnt/d/spaces/SpecWeave``，仓库根上溯四级=文件系统根）会解析成
+    **文件系统根直接子级**（``/.temp``、``D:\\.temp``）——该位置既无权创建、
+    也从来不是合法挂载点，裸 ``mkdir`` 只会抛出原始 ``PermissionError``
+    traceback。此时 fail-fast 并指引显式设置 ``env_key`` 绝对路径（native
+    叠加层规则 §4①「换检出位置布局不同时必须显式设 .env」的代码收口）；
+    ``create`` 分支的 ``OSError`` 同样转为可操作报错而非裸栈。
+    """
     p = Path(raw).expanduser()
     if not p.is_absolute():
         p = (Path.cwd() / p).resolve()
-    if must_exist and not p.exists():
+    if p.parent == Path(p.anchor):
+        # 解析结果落在文件系统根直接子级 = 相对/缺省值上溯越出了检出布局
+        hint = f"（例如 {env_key}=<宿主绝对路径>）" if env_key else ""
+        print(f"[{spec.namespace}] ⚠ {label}路径解析越界：{p}")
+        print("        相对/缺省路径的上溯层数超出了当前检出布局，落点为文件系统根直接子级。")
+        print(f"        请在 .env / 环境变量中为该变量设置布局无关的绝对路径后重试{hint}。")
+        raise Exit(1)
+    if create:
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            print(f"[{spec.namespace}] ⚠ {label}目录创建失败：{p}（{e}）")
+            print("        请在 .env / 环境变量中设置对应变量指向可写目录后重试。")
+            raise Exit(1) from e
+    elif must_exist and not p.exists():
         print(f"[{spec.namespace}] ⚠ {label}宿主路径不存在：{p}")
         print("        请在 .env / 环境变量中设置对应变量指向有效目录后重试。")
         raise Exit(1)
@@ -270,7 +404,8 @@ def prepare_env(spec: StackSpec) -> dict:
     - workspace 解析为绝对 POSIX 路径注入（compose 任务可从任意 cwd 调用，
       不能依赖 compose.yaml 内相对路径）；幂等 mkdir + checkpoint 可写放宽。
     - source_mounts 的源码路径按各自锚点（仓库根/client 根）取缺省值，
-      解析为绝对 POSIX，must_exist 时做存在性硬校验。
+      解析为绝对 POSIX，must_exist 时做存在性硬校验；must_exist=False 的
+      temp 类目录走幂等 mkdir（与 workspace 同语义，缺失属正常首态）。
     """
     env = _load_env_overrides(_project_root())
     root = _project_root()
@@ -297,23 +432,232 @@ def prepare_env(spec: StackSpec) -> dict:
             or env.get(mount.env)
             or str((base / mount.default_rel).resolve())
         )
-        os.environ[mount.env] = _resolve_path(
-            spec, raw, must_exist=mount.must_exist, label=mount.label
+        resolved = _resolve_path(
+            spec,
+            raw,
+            must_exist=mount.must_exist,
+            create=not mount.must_exist,
+            label=mount.label,
+            env_key=mount.env,
         )
+        os.environ[mount.env] = resolved
+        # bind 源树 other 位可访问性契约（C-I12）：容器 devuser（固定 UID1000）
+        # 经 other 位访问宿主挂载树，宿主侧 0700 检出会让 pip/Jupyter 以
+        # Errno 13 失败。prepare_env 是 build/up/smoke 的共同咽喉点，在此
+        # 幂等放宽（仅权限位、POSIX、失败不阻断；Windows/9p 由函数内跳过并
+        # 给出 W-I19 指引）。temp 类只放宽根目录，子项由 devuser 自建自属。
+        if mount.must_exist:
+            ensure_bind_tree_accessible(
+                resolved,
+                writable=mount.writable,
+                label=mount.label,
+                namespace=spec.namespace,
+            )
+        else:
+            ensure_world_writable_dir(
+                resolved, label=mount.label, namespace=spec.namespace
+            )
 
     return env
 
 
 def image_tag(spec: StackSpec, env: dict) -> str:
-    return str(
-        os.environ.get(spec.image_tag_env)
-        or env.get(spec.image_tag_env)
-        or spec.default_image_tag
+    """本次调用的镜像 tag（C16：必须与 compose 段同键同默认）。
+
+    解析序：显式 ``{PREFIX}_IMAGE_TAG`` > ``default_image_tag``。
+    """
+    explicit = str(
+        os.environ.get(spec.image_tag_env) or env.get(spec.image_tag_env) or ""
     )
+    if explicit:
+        return explicit
+    return spec.default_image_tag
 
 
 def _env_port(spec: StackSpec, env: dict, key: str, default: str) -> str:
     return str(os.environ.get(key) or env.get(key) or default)
+
+
+def jupyter_direct_url(port: str, token: str) -> str:
+    """构造 up 横幅用的 JupyterLab 免登录直达 URL。
+
+    token 为空（未配置 JUPYTER_TOKEN）时返回空串，调用方不打印该行——
+    与 jupyter Server 自身日志输出 token URL 同语义，仅本机开发便利。
+    """
+    token = (token or "").strip()
+    return f"http://localhost:{port}/lab?token={token}" if token else ""
+
+
+# entrypoint 凭证横幅（jupyter-podman-rootless/entrypoint.sh 的 setup_passwords /
+# print_access_info）：密码行形如 `* [IMPORTANT] devuser password: <pw>`，token 行
+# 形如 `    Token: <tok>`。.env 凭证键留空时二者由容器内 pwgen 生成、**只打印到
+# 容器启动日志**，故 up 收尾须从容器日志回读（overlay 内核不回写 .env）。
+_CRED_SSH_LOGIN_RE = re.compile(r"SSH login:\s*ssh\s+(?P<user>\S+?)@")
+_CRED_TOKEN_RE = re.compile(r"^\s*Token:\s*(?P<token>\S+)\s*$", re.MULTILINE)
+# 回读窗口从**日志头部**取：`invoke <ns>.logs` 默认 `--tail=100` 只看尾部，启动
+# 日志较长时凭证横幅已被挤出窗口——这是「看不到凭证」的第二重原因，勿改回 tail。
+_CRED_LOG_HEAD_LINES = 300
+
+
+def parse_container_credentials(log_text: str) -> tuple[str, str, str]:
+    """从容器启动日志解析 ``(SSH 用户, 密码, Jupyter token)``（纯函数，可单测）。
+
+    密码**必须**用 ``SSH login:`` 行取到的用户名反查其 password 行：只按
+    ``password:`` 匹配会先命中 ``Root password:``（ALLOW_ROOT_SSH=yes 时存在），
+    把 root 密码误报成用户密码。任一项解析不到即返回空串，调用方静默降级。
+    """
+    text = log_text or ""
+    m = _CRED_SSH_LOGIN_RE.search(text)
+    user = m.group("user") if m else ""
+    password = ""
+    if user:
+        pw = re.search(rf"\[IMPORTANT\]\s+{re.escape(user)} password:\s*(?P<pw>\S+)", text)
+        password = pw.group("pw") if pw else ""
+    tok = _CRED_TOKEN_RE.search(text)
+    return user, password, tok.group("token") if tok else ""
+
+
+def read_container_credentials(c: Context, spec: StackSpec) -> tuple[str, str, str]:
+    """从运行中的容器回读 entrypoint 实际生成的凭证（I/O 包装）。
+
+    .env 凭证键留空时密码/token 在容器内生成且只进启动日志，up 横幅若只转发
+    .env 便只能看到空串——故按 PROJECT/SERVICE 标签定位容器、读其启动日志头部
+    解析（见 :func:`parse_container_credentials`）。任一环节失败（容器未跑、
+    日志不可读）静默返回空三元组，绝不阻断 up 主流程。
+    """
+    cid = _running_project_container(c, spec)
+    if not cid:
+        return "", "", ""
+    r = run_cmd(
+        c,
+        f"{detect_runtime()} logs {cid} 2>&1 | head -n {_CRED_LOG_HEAD_LINES}",
+        hide=True,
+        warn=True,
+        echo=False,
+    )
+    if r is None or not getattr(r, "ok", False):
+        return "", "", ""
+    return parse_container_credentials(r.stdout or "")
+
+
+def resolve_build_args(
+    spec: StackSpec,
+    env: dict,
+    *,
+    base_image: Optional[str] = None,
+    pip_mirror: Optional[str] = None,
+    conda_mirror: Optional[str] = None,
+    torch: Optional[str] = None,
+) -> dict:
+    """解析构建期 build-arg（单一事实源，C15）。
+
+    键为**无前缀**的 compose 插值键（``BASE_IMAGE`` / ``PIP_MIRROR`` /
+    ``CONDA_MIRROR`` / ``TORCH_FLAVOR``），与 ``overlays/*/compose.yaml`` 的
+    ``${KEY:-默认}`` 逐一对应：``build``、``up`` 内联构建、compose 内部 build
+    段三处必须拿到同一值，否则某一处 build-arg 变化就会让构建层缓存整体失效
+    （表现为"白重建"）。
+
+    优先级：显式参数（CLI 旗标）> shell export > .env > 默认值；compose 段不
+    可见 CLI 旗标，故**跨三处一致必须写 .env**，CLI 旗标只覆盖单次调用。
+
+    ``torch_flavor``：仅声明 ``torch_flavor=True`` 的栈解析（键 ``TORCH_FLAVOR``），
+    取值白名单 ``""``（不装）/``cpu``/``cu130``——非白名单在**解析期**即拒绝，
+    避免把错误值带到 podman build 才炸（构建一次代价极高）。缺省回落空串
+    （不装 torch）；compose 侧同键写 ``${TORCH_FLAVOR:-}`` 与之同默认（C15）。
+    """
+    args = {
+        "base_image": str(
+            base_image
+            or os.environ.get("BASE_IMAGE")
+            or env.get("BASE_IMAGE")
+            or spec.default_base_image
+        ),
+        "pip_mirror": str(
+            pip_mirror or os.environ.get("PIP_MIRROR") or env.get("PIP_MIRROR") or "official"
+        ),
+    }
+    if spec.conda_mirror:
+        args["conda_mirror"] = str(
+            conda_mirror
+            or os.environ.get("CONDA_MIRROR")
+            or env.get("CONDA_MIRROR")
+            or "official"
+        )
+    if spec.apt_mirror:
+        # 无 CLI 旗标：shell export > .env > official（C15 同序；跨 build/up/compose
+        # 三处一致写 .env）。Containerfile 侧默认 official=不换源，零回归。
+        args["apt_mirror"] = str(
+            os.environ.get("APT_MIRROR") or env.get("APT_MIRROR") or "official"
+        )
+    if spec.torch_flavor:
+        flavor = str(
+            torch or os.environ.get("TORCH_FLAVOR") or env.get("TORCH_FLAVOR") or ""
+        ).strip()
+        if flavor not in TORCH_FLAVORS:
+            raise Exit(
+                1,
+                f"TORCH_FLAVOR={flavor!r} 非法；可选值："
+                + " | ".join(repr(v) for v in TORCH_FLAVORS)
+                + "（'' 表示不装 torch）",
+            )
+        args["torch_flavor"] = flavor
+    return args
+
+
+# ---------------------------------------------------------------------------
+# 离线模式（仅 supports_offline 栈）
+# ---------------------------------------------------------------------------
+
+
+def resolve_offline(
+    spec: StackSpec, on_val: bool, off_val: bool, env: Optional[dict] = None
+) -> bool:
+    """三态解析离线开关：``--offline`` > ``--no-offline`` > ``{PREFIX}_OFFLINE`` > 默认关。
+
+    非离线栈恒 False（不消费 ``{PREFIX}_OFFLINE``）。env 未显式传入时先经
+    ``_load_env_overrides`` 把 root .env 同步进 ``os.environ``（幂等，与
+    ``prepare_env`` 同一优先级：shell export > .env > 默认）。
+
+    **显式旗标必须写回环境**：WSL 桥接（``run_in_wsl_bridge``）只透传环境变量、
+    不转发 CLI 参数，旗标若不在 ``gate_platform`` 之前固化到
+    ``os.environ[offline_env_key]``，桥接后即丢失（V 对抗审查 V-1）。
+    """
+    if not spec.supports_offline:
+        return False
+    key = spec.offline_env_key
+    if env is None:
+        _load_env_overrides(_project_root())
+        env = os.environ
+    offline = _resolve_bool(on_val, off_val, env, key, False, "offline")
+    if on_val or off_val:
+        os.environ[key] = "1" if offline else "0"
+    return offline
+
+
+def offline_exec_env(spec: StackSpec) -> list[str]:
+    """栈内 exec 长任务的离线环境注入：``-e {PREFIX}_OFFLINE=1``；非离线时空。
+
+    经 exec 的 ``-e`` 逐次注入而非进 compose ``environment`` 段：离线是调用期
+    开关，不应污染 compose.yaml 的确定性渲染（保留 test_compose_merge 黄金快照）。
+    """
+    if not spec.supports_offline or not resolve_offline(spec, False, False):
+        return []
+    return ["-e", f"{spec.offline_env_key}=1"]
+
+
+def compose_up_tail() -> list[str]:
+    """``up`` 的 compose 尾参**恒含** ``--no-build``：构建执行者唯一（C16）。
+
+    podman-compose 的 ``up`` 默认对含 build 段的服务执行构建
+    （vendor ``podman_compose.py`` L4098 ``if not args.no_build:``）。若不关闭，
+    一次 ``invoke x.up`` 会构建两次——内核 ``build_image`` 与 compose build 段，
+    二者是「两个执行者解释同一意图」，且 compose 段看不到 CLI 旗标、时点在
+    内核之后（离线场景更直接破网，V 对抗审查 V-2）。
+
+    故：**镜像存在性由内核负责，compose 只负责起容器**。compose.yaml 的
+    ``build`` 段仅服务**裸 podman-compose** 路径，invoke 路径不再消费它。
+    """
+    return ["up", "-d", "--no-build"]
 
 
 # ---------------------------------------------------------------------------
@@ -321,34 +665,248 @@ def _env_port(spec: StackSpec, env: dict, key: str, default: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def compose_argv(spec: StackSpec, *tail: str, gpu: bool = False) -> list[str]:
-    """组装 podman-compose 公共 argv（固定 project name，-f 绝对路径）。
+def gpu_override_file(spec: StackSpec, form: str = "generic") -> Path:
+    """按形态选 GPU 覆盖文件；``compose.gpu.<形态>.yaml`` 缺失时回退 generic。
 
-    gpu=True 且栈声明 gpu_override 时叠加 compose.gpu.yaml（透传 /dev/dri）。
+    回退是**刻意的**：形态表新增一行时不必同时新增覆盖文件——只有形态确实
+    需要额外声明（如 wsl 需挂 libcuda）才建姊妹文件，否则沿用通用覆盖。
     """
     overlay = overlay_dir(spec)
-    files = [overlay / "compose.yaml"]
+    if form and form != "generic":
+        candidate = overlay / f"compose.gpu.{form}.yaml"
+        if candidate.exists():
+            return candidate
+    return overlay / "compose.gpu.yaml"
+
+
+def compose_files(
+    spec: StackSpec,
+    *,
+    gpu: bool = False,
+    gpu_form: str = "generic",
+    passthrough: bool = False,
+    gui: bool = False,
+    gui_forms: tuple[str, ...] = (),
+    usb: bool = False,
+) -> list[Path]:
+    """本次调用下发的 compose 文件集（**唯一事实源**：argv 与预检判据共用）。
+
+    为什么必须同源：跨控制平面判据（:func:`up_preflight`）比的是 podman 的
+    ``com.docker.compose.project.config_files`` **原文串**，即「本次真正下发的
+    ``--file`` 集合」。两处各推一份必然在新增覆盖文件时误报——2026-09-20 实证：
+    ``up --gpu`` 的期望值只算了 ``compose.yaml``，而运行容器标签是两文件
+    （``.../compose.yaml,.../compose.gpu.wsl.yaml``），二者**恒不相等**，于是
+    每次 ``--gpu`` 都被判成「另一控制平面创建」并强制优雅 down + recreate。
+
+    文件顺序（compose 按序叠加合并）：base → GPU → 透传主层 → GUI
+    （Wayland → X11 unix → X11/TCP）→ USB 层。x11 与 x11-tcp 互斥
+    （resolve_gui 保证），不会同时出现。
+    """
+    files = [overlay_dir(spec) / "compose.yaml"]
     if gpu:
         if not spec.gpu_override:
             # 内部不变量：非 GPU 栈不应收到 gpu=True（工厂不会暴露该参数）
             raise RuntimeError(f"栈 {spec.namespace} 未声明 gpu_override")
-        files.append(overlay / "compose.gpu.yaml")
+        files.append(gpu_override_file(spec, gpu_form))
+    if passthrough:
+        if not spec.passthrough_overlay:
+            raise RuntimeError(f"栈 {spec.namespace} 未声明 passthrough_overlay")
+        files.append(overlay_dir(spec) / "compose.passthrough.yaml")
+    if gui:
+        if not spec.gui_overlay:
+            raise RuntimeError(f"栈 {spec.namespace} 未声明 gui_overlay")
+        if not gui_forms:
+            # 内部不变量：gui=True 必须携带 resolve_gui 的探测结果——空形态
+            # 意味着门禁未过却下发了 GUI 层（缺源 bind 必 exit 125）。
+            raise RuntimeError("gui=True 但 gui_forms 为空（resolve_gui 未命中任何显示 socket）")
+        if "wayland" in gui_forms:
+            files.append(overlay_dir(spec) / "compose.passthrough.gui.yaml")
+        if "x11" in gui_forms:
+            files.append(overlay_dir(spec) / "compose.passthrough.gui.x11.yaml")
+        if "x11-tcp" in gui_forms:
+            files.append(overlay_dir(spec) / "compose.passthrough.gui.x11.tcp.yaml")
+    if usb:
+        if not spec.usb_overlay:
+            raise RuntimeError(f"栈 {spec.namespace} 未声明 usb_overlay")
+        files.append(overlay_dir(spec) / "compose.passthrough.usb.yaml")
+    return files
+
+
+def compose_config_files_label(
+    spec: StackSpec,
+    *,
+    gpu: bool = False,
+    gpu_form: str = "generic",
+    passthrough: bool = False,
+    gui: bool = False,
+    gui_forms: tuple[str, ...] = (),
+    usb: bool = False,
+) -> str:
+    """compose 写进 ``config_files`` 标签的原文串（逗号分隔，与 podman 同格式）。
+
+    用于与运行容器标签做**原文比较**（:func:`config_paths_diverge`）——禁止做
+    路径等价归一（compose 的 config-hash 按原文计算）。
+    """
+    return ",".join(
+        str(f)
+        for f in compose_files(
+            spec, gpu=gpu, gpu_form=gpu_form, passthrough=passthrough,
+            gui=gui, gui_forms=gui_forms, usb=usb,
+        )
+    )
+
+
+def compose_argv(
+    spec: StackSpec,
+    *tail: str,
+    gpu: bool = False,
+    gpu_form: str = "generic",
+    passthrough: bool = False,
+    gui: bool = False,
+    gui_forms: tuple[str, ...] = (),
+    usb: bool = False,
+) -> list[str]:
+    """组装 podman-compose 公共 argv（固定 project name，-f 绝对路径）。
+
+    gpu=True 且栈声明 gpu_override 时叠加 GPU 覆盖文件；``gpu_form`` 决定
+    具体文件（见 :func:`gpu_override_file`，只加载**一个**设备覆盖文件——
+    两个同时加载会让 devices 列表出现重复项，podman 拒绝映射两次）。
+    ``passthrough``/``gui``/``usb`` 追加透传各覆盖层（GUI 按探测形态加载
+    Wayland/X11 一或两层）。文件集来自 :func:`compose_files`，与预检判据同源。
+    """
     argv = ["podman-compose", "--project-name", spec.project]
-    for f in files:
+    for f in compose_files(
+        spec, gpu=gpu, gpu_form=gpu_form, passthrough=passthrough,
+        gui=gui, gui_forms=gui_forms, usb=usb,
+    ):
         argv += ["--file", str(f)]
     argv += list(tail)
     return argv
 
 
-def run_compose(c: Context, spec: StackSpec, *tail: str, gpu: bool = False, pty: bool = True) -> None:
+def run_compose(
+    c: Context,
+    spec: StackSpec,
+    *tail: str,
+    gpu: bool = False,
+    gpu_form: str = "generic",
+    passthrough: bool = False,
+    gui: bool = False,
+    gui_forms: tuple[str, ...] = (),
+    usb: bool = False,
+    pty: bool = True,
+) -> None:
     """执行 podman-compose 子进程（逐参数 shlex.quote，路径含空格也安全）。
 
     extends 对 argv 透明：podman-compose 1.6.0 在解析阶段把
     ``extends.file`` 的相对路径按引用它的 compose 文件目录重写
     （_parse_compose_file L2844-L2849），故绝对 --file + 任意 cwd 均可。
     """
-    argv = compose_argv(spec, *tail, gpu=gpu)
+    argv = compose_argv(
+        spec, *tail, gpu=gpu, gpu_form=gpu_form, passthrough=passthrough,
+        gui=gui, gui_forms=gui_forms, usb=usb,
+    )
     run_cmd(c, " ".join(shlex.quote(a) for a in argv), pty=pty)
+
+
+# podman 在 ``pod create`` / ``create`` / ``start`` 后回显的对象 ID（stdout，独占一行）
+_COMPOSE_ECHO_ID_RE = re.compile(r"^[0-9a-f]{64}$")
+# podman rootless netns 的**良性** ERROR（stderr）：宿主无 systemd 用户会话总线
+# （WSL 发行版 / podman machine 内无 user session bus）时无法把 pasta 进程移入
+# user.slice，容器照常创建并运行（与 compose.yaml 文件头记录的 aardvark-dns
+# "Failed to connect to user scope bus" 同族；2026-09-18 实证）。
+_PASTA_DBUS_NOISE_RE = re.compile(
+    r"^ERROR\[\d+\]\s+failed to move the rootless netns pasta process to the "
+    r"systemd user\.slice:\s*dbus: couldn't determine address of session bus"
+)
+
+
+def compose_echo_names(spec: StackSpec) -> tuple[str, ...]:
+    """podman / podman-compose 会原样回显的本项目资源名（容器 / pod / 默认网络）。
+
+    podman-compose 的默认命名为容器名 ``container_name``（本族三栈 == ``project``）、
+    服务名、pod ``pod_<project>``、网络 ``<project>_default``。
+    """
+    return (
+        spec.project,
+        spec.service,
+        f"pod_{spec.project}",
+        f"{spec.project}_default",
+    )
+
+
+def is_benign_compose_noise(line: str, *, names: tuple[str, ...] = ()) -> bool:
+    """判定 podman 透传的原生行是否属**良性噪声**（唯一判定点，纯函数可单测）。
+
+    判据刻意收窄为「绝不可能是错误信息」的三类，凡有疑问一律返回 False（保留）：
+      - 对象 ID 回显：整行恰为 64 位十六进制（pod/容器/网络 create 的 stdout）；
+      - 资源名回显：整行恰为本项目容器名/pod 名/默认网络名（与 names 全等）；
+      - 无会话总线提示：rootless netns 无法把 pasta 移入 user.slice（容器照常运行）。
+    """
+    text = line.strip()
+    if not text:
+        return False
+    if _COMPOSE_ECHO_ID_RE.match(text):
+        return True
+    if text in names:
+        return True
+    return bool(_PASTA_DBUS_NOISE_RE.match(text))
+
+
+def run_compose_up(
+    c: Context,
+    spec: StackSpec,
+    *tail: str,
+    gpu: bool = False,
+    gpu_form: str = "generic",
+    passthrough: bool = False,
+    gui: bool = False,
+    gui_forms: tuple[str, ...] = (),
+    usb: bool = False,
+) -> None:
+    """执行 ``up`` 并过滤 podman 原生回显噪声（C17）。
+
+    背景：podman-compose 在无 log_formatter 时以 ``close_fds=False`` 让子进程
+    继承 stdio（vendor ``podman_compose.py`` L1907），podman 的 create/start
+    回显（64 位对象 ID、资源名）与 rootless netns 的良性 ERROR 因此直通终端，
+    把编排层逐行中文提示冲散（2026-09-18 用户实证）。
+
+    安全边界（V 对抗审查）：
+      - **失败时零过滤**：非零退出码下 stdout/stderr 全量原样回放后再
+        ``Exit(code=rc)`` 上抛，真实故障信息不因过滤而丢失；
+      - 过滤判据是白名单三式（见 :func:`is_benign_compose_noise`），有疑问保留；
+      - 仅 ``up`` 走本函数——构建/编译等长任务仍逐字实时透传，流式体验不受影响。
+    """
+    argv = compose_argv(
+        spec, *tail, gpu=gpu, gpu_form=gpu_form, passthrough=passthrough,
+        gui=gui, gui_forms=gui_forms, usb=usb,
+    )
+    cmd = " ".join(shlex.quote(a) for a in argv)
+    print(f"执行: {cmd}")
+    r = run_cmd(c, cmd, pty=False, hide=True, warn=True, echo=False)
+    out = (getattr(r, "stdout", "") or "") if r is not None else ""
+    err = (getattr(r, "stderr", "") or "") if r is not None else ""
+    if r is None or not getattr(r, "ok", False):
+        rc = int(getattr(r, "return_code", 1) or 1)
+        print(f"[{spec.namespace}] ⚠ podman-compose up 失败（exit={rc}），原始输出如下：")
+        for raw in (out, err):
+            if raw:
+                print(raw, end="" if raw.endswith("\n") else "\n")
+        raise Exit(f"podman-compose up 失败 (exit={rc})", code=rc)
+
+    names = compose_echo_names(spec)
+    dropped = 0
+    for raw in (out, err):
+        for line in raw.splitlines():
+            if is_benign_compose_noise(line, names=names):
+                dropped += 1
+            else:
+                print(line)
+    if dropped:
+        print(
+            f"[{spec.namespace}] ℹ 已过滤 {dropped} 行 podman 原生回显噪声"
+            "（对象 ID / 资源名 / 无会话总线提示）"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +962,32 @@ def _running_project_container(c: Context, spec: StackSpec) -> str:
     if r is None or not getattr(r, "ok", False):
         return ""
     return (r.stdout or "").strip().split()[0] if (r.stdout or "").strip() else ""
+
+
+def _own_host_container_running(c: Context, spec: StackSpec) -> bool:
+    """本栈是否有 running 且 host 网络形态的容器（透传主层）。
+
+    host 网络下容器内 Jupyter(8888)/SSH(HOST_NET_SSHD_PORT) 直接绑宿主，
+    故 ``ss`` 看到的占用**必然含本栈自身**——重复 up 属幂等场景，交
+    podman-compose 处理（文件集无变化=no-op，组合旗标变化=自动 recreate），
+    不由端口门禁拦截。容器不在跑 / 非 host 形态 → False，fail-fast 语义不变
+    （2026-09-23 实证：bridge 形态跑着而 8888/2223 被*其他*进程占用时仍须拦）。
+    """
+    cid = _running_project_container(c, spec)
+    if not cid:
+        return False
+    runtime = detect_runtime()
+    r = run_cmd(
+        c,
+        f"{runtime} inspect --format "
+        f"{shlex.quote('{{.State.Running}} {{.HostConfig.NetworkMode}}')} {cid}",
+        hide=True,
+        warn=True,
+        echo=False,
+    )
+    out = ((r.stdout or "").strip() if r is not None and getattr(r, "ok", False) else "")
+    parts = out.split()
+    return len(parts) == 2 and parts[0] == "true" and parts[1] == "host"
 
 
 def _container_init_pid(c: Context, container_id: str) -> int:
@@ -620,7 +1204,18 @@ def _running_config_files(c: Context, spec: StackSpec, container_id: str) -> str
     return ((r.stdout or "").strip() if r is not None and getattr(r, "ok", False) else "")
 
 
-def up_preflight(c: Context, spec: StackSpec, env: Optional[dict] = None) -> None:
+def up_preflight(
+    c: Context,
+    spec: StackSpec,
+    env: Optional[dict] = None,
+    *,
+    gpu: bool = False,
+    gpu_form: str = "generic",
+    passthrough: bool = False,
+    gui: bool = False,
+    gui_forms: tuple[str, ...] = (),
+    usb: bool = False,
+) -> None:
     """up 前自愈（顺序不可调换）：
 
     1. Created/Exited 项目残留 → compose down（保留卷/绑定）；
@@ -632,6 +1227,12 @@ def up_preflight(c: Context, spec: StackSpec, env: Optional[dict] = None) -> Non
        ``/mnt/d/...``，config-hash 按原文计算）→ 先优雅 compose down；
     3. 无活体项目容器时回收孤儿进程：rootlessport（持端口，必收）与
        stale conmon（已删容器遗留，不持端口但跨平面循环会累积）。
+
+    跨平面判据的期望值必须由 :func:`compose_config_files_label` 推出（C23）：
+    ``gpu``/``gpu_form`` 决定本次真正下发的文件集，写死单文件会让 ``up --gpu``
+    每次误判为「另一控制平面创建」而强制重建。**但仍保持精确同集比较**——
+    ``up``（无 ``--gpu``）对 ``--gpu`` 创建的栈判分歧是**正确**行为（compose
+    确会 recreate），修的是假分歧而非取消失歧判定。
     """
     env = env if env is not None else {}
     ports = _stack_ports(spec, env)
@@ -646,7 +1247,10 @@ def up_preflight(c: Context, spec: StackSpec, env: Optional[dict] = None) -> Non
         cid = ""
     if cid:
         actual = _running_config_files(c, spec, cid)
-        expected = str(overlay_dir(spec) / "compose.yaml")
+        expected = compose_config_files_label(
+            spec, gpu=gpu, gpu_form=gpu_form, passthrough=passthrough,
+            gui=gui, gui_forms=gui_forms, usb=usb,
+        )
         if config_paths_diverge(actual, expected):
             print(
                 f"[{spec.namespace}] ⚠ 检测到栈由另一控制平面创建"
@@ -684,18 +1288,129 @@ def require_running(c: Context, spec: StackSpec) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _require_local_image(
+    c: Context, spec: StackSpec, img_tag: str, *, action: str, offline: bool
+) -> None:
+    """跳过构建时的前置：镜像必须已在本地，缺失即 fail-fast + 中文可执行指引。
+
+    两条路径共用（C16）——① ``--offline``：只能用已导入镜像（断网，不能构建）；
+    ② 非离线 ``--skip-build``：用户声明不做任何构建。二者此刻都**没有第二个
+    执行者兜底**（``up`` 恒 ``--no-build``），故必须在此拦下并给出可执行出口。
+    """
+    runtime = detect_runtime()
+    r = run_cmd(c, f"{runtime} image exists {img_tag}", hide=True, warn=True, echo=False)
+    if r is not None and getattr(r, "ok", False):
+        return
+    if offline:
+        print(f"[{spec.namespace}] ⚠ 离线模式下本地缺少镜像 {img_tag}，无法{action}：")
+        print(f"[{spec.namespace}]   联网机器导出归档: invoke {spec.namespace}.save")
+        print(f"[{spec.namespace}]   本机导入归档:     invoke {spec.namespace}.load --path <归档.tar.gz>")
+    else:
+        print(f"[{spec.namespace}] ⚠ --skip-build 置位但本地缺少镜像 {img_tag}，无法{action}：")
+        print(f"[{spec.namespace}]   compose 段不会兜底构建（up 恒 --no-build）；二选一：")
+        print(f"[{spec.namespace}]   随带构建启动:   invoke {spec.namespace}.up")
+        print(
+            f"[{spec.namespace}]   显式构建后启动: invoke {spec.namespace}.build"
+            f" && invoke {spec.namespace}.up --skip-build"
+        )
+    raise Exit(1)
+
+
+def image_torch_flavor(c: Context, img_tag: str) -> Optional[str]:
+    """读镜像 LABEL 里的 torch 形态；**无该 LABEL 返回 None**。
+
+    与 ``client_core._image_torch_flavor`` 的关键差异：那个把「无 LABEL」与
+    「LABEL 为空」都归为空串（供 save 命名用，二者等价即可）；本函数必须
+    区分——空串是**合法声明**（``TORCH_FLAVOR=""`` = 不装 torch），无 LABEL
+    才是**无法判定**（改造前的旧镜像 / 非 torch 栈的镜像），后者不得参与比对，
+    否则会把「旧镜像无标签」误报成「形态不符」。
+
+    经 ``client_core.image_inspect_info`` 取原始 JSON 而非 ``--format`` 模板：
+    规避 Windows cmd 与 Linux bash 双 shell 下的模板引号差异（同源先例见该
+    函数 docstring）；镜像不存在或解析失败返回 ``{}``，本函数据此返回 None。
+    """
+    labels = (image_inspect_info(c, img_tag) or {}).get("labels") or {}
+    if TORCH_FLAVOR_LABEL not in labels:
+        return None
+    return str(labels.get(TORCH_FLAVOR_LABEL) or "").strip()
+
+
+def warn_torch_flavor_mismatch(c: Context, spec: StackSpec, env: dict) -> None:
+    """校验「本次 up 期望的 torch 形态」与「本地镜像实际形态」是否一致（C27）。
+
+    为什么需要（2026-09-21 实证缺口）：CLI ``--torch`` 只覆盖单次构建（C15），
+    故 ``build --torch cpu`` 会把 ``latest`` 打成 cpu 形态，而随后的
+    ``up --skip-build`` 只查镜像**存在性**、形参面又没有 ``--torch``，无从得知
+    CLI 意图；构建期守卫第 10 项比的是「镜像 marker vs 镜像实物」，两者一致
+    必然 PASS，**也不会**发现与 ``.env`` 的偏差 → 最终「``.env`` 声明 cu130、
+    容器实跑 cpu」静默成立。本函数在起容器前把该偏差显式化。
+
+    期望值取 ``resolve_build_args``（与 ``build`` 同一解析序：CLI > shell >
+    .env > 空串）——``up`` 无 ``--torch`` 形参，故实际等价于 ``.env`` / 缺省。
+
+    **警告不阻断**：镜像本身可用，形态不符只影响能力面（如无 CUDA），用户可能
+    刻意临时用另一形态；fail-fast 会把「能用」的场景一并挡掉。仅当形态确实
+    不符才输出，一致时静默（非 ``torch_flavor`` 栈直接返回，零回归）。
+    """
+    if not spec.torch_flavor:
+        return
+    img_tag = image_tag(spec, env)
+    actual = image_torch_flavor(c, img_tag)
+    if actual is None:
+        return  # 旧镜像无该 LABEL：无法判定，不打扰
+    expected = str(resolve_build_args(spec, env).get("torch_flavor") or "")
+    if actual == expected:
+        return
+    expected_hint = expected or "''（不装 torch）"
+    print(f"[{spec.namespace}] ⚠ 镜像 torch 形态与声明不一致：")
+    print(f"[{spec.namespace}]     声明（.env TORCH_FLAVOR）: {expected_hint}")
+    print(f"[{spec.namespace}]     镜像实际（{img_tag}）: {actual or '空（不装 torch）'}")
+    print(f"[{spec.namespace}]   容器将以**镜像实际形态**运行。如需声明形态：")
+    print(f"[{spec.namespace}]     重建镜像: invoke {spec.namespace}.build"
+          f"    （读 .env；--torch 旗标只覆盖单次构建，不改变 .env）")
+
+
 def build_image(
     c: Context,
     spec: StackSpec,
     *,
     tag: Optional[str],
-    base_image: str,
-    pip_mirror: str,
+    base_image: Optional[str] = None,
+    pip_mirror: Optional[str] = None,
     conda_mirror: Optional[str] = None,
+    torch: Optional[str] = None,
     no_cache: bool = False,
+    offline: Optional[bool] = None,
 ) -> str:
-    """podman build 薄封装（不引入 compose build 黑盒）；返回最终镜像标签。"""
+    """podman build 薄封装（不引入 compose build 黑盒）；返回最终镜像标签。
+
+    四个 build-arg 传 ``None`` 时经 ``resolve_build_args`` 解析：读与 compose.yaml
+    ``${KEY:-默认}`` 相同的无前缀 .env 键（C15），保证本层构建与 compose 内部
+    build 段拿到同一组值，避免互相失效层缓存。
+
+    离线模式（``offline=None`` 时按 ``{PREFIX}_OFFLINE`` 解析）下**首行即拒绝**：
+    构建期 apt/mamba/pip 均需联网，无网机器无法完成，错误前置优于构建中途报错。
+    """
+    if offline is None:
+        offline = resolve_offline(spec, False, False)
+    if offline:
+        print(f"[{spec.namespace}] ⚠ 离线模式（{spec.offline_env_key}=1）禁止构建镜像：")
+        print("        构建期 apt/mamba/pip 均需联网，无网机器无法完成。")
+        print(f"[{spec.namespace}]   联网机器: invoke {spec.namespace}.build && invoke {spec.namespace}.save")
+        print(f"[{spec.namespace}]   本机导入: invoke {spec.namespace}.load --path <归档.tar.gz>")
+        print(f"[{spec.namespace}]   或仅用本地镜像启动: invoke {spec.namespace}.up --offline")
+        raise Exit(1)
+
     env = prepare_env(spec)
+    args = resolve_build_args(
+        spec,
+        env,
+        base_image=base_image,
+        pip_mirror=pip_mirror,
+        conda_mirror=conda_mirror,
+        torch=torch,
+    )
+    base_image = args["base_image"]
     runtime = detect_runtime()
     img_tag = tag or image_tag(spec, env)
     overlay = overlay_dir(spec)
@@ -721,10 +1436,20 @@ def build_image(
         "build",
         f"-f {shlex.quote(str(containerfile))}",
         f"--build-arg BASE_IMAGE={shlex.quote(base_image)}",
-        f"--build-arg PIP_MIRROR={shlex.quote(pip_mirror)}",
+        f"--build-arg PIP_MIRROR={shlex.quote(args['pip_mirror'])}",
     ]
     if spec.conda_mirror:
-        parts.append(f"--build-arg CONDA_MIRROR={shlex.quote(conda_mirror or 'official')}")
+        parts.append(
+            f"--build-arg CONDA_MIRROR={shlex.quote(args.get('conda_mirror') or 'official')}"
+        )
+    if spec.apt_mirror:
+        parts.append(
+            f"--build-arg APT_MIRROR={shlex.quote(args.get('apt_mirror') or 'official')}"
+        )
+    if spec.torch_flavor:
+        parts.append(
+            f"--build-arg TORCH_FLAVOR={shlex.quote(args.get('torch_flavor') or '')}"
+        )
     parts.append(f"-t {shlex.quote(img_tag)}")
     if no_cache:
         parts.append("--no-cache")
@@ -738,32 +1463,1045 @@ def build_image(
     return img_tag
 
 
-def up_stack(c: Context, spec: StackSpec, *, gpu: bool = False, skip_build: bool = False) -> None:
-    """渲染并启动栈（默认随带构建；up 前过 up_preflight 三道自愈）。"""
-    if not skip_build:
-        # up 内联构建只按默认参数执行（mirror/tag/base 自定义走显式 build 两步路径）
-        build_image(
-            c,
-            spec,
-            tag=None,
-            base_image=spec.default_base_image,
-            pip_mirror="official",
-            conda_mirror="official" if spec.conda_mirror else None,
-            no_cache=False,
-        )
+# ---------------------------------------------------------------------------
+# GPU 设备解析与预检（C19：opt-in 设备的**运行期可用性**门禁）
+# ---------------------------------------------------------------------------
+
+
+def _runtime_path_exists(c: Context, path: str) -> bool:
+    """在 **podman 所在环境**探测路径是否存在。
+
+    run_cmd 在 Windows 原生会自动把整条 invoke 命令重放到 WSL 发行版内执行
+    （run_in_wsl_bridge），故存在性判定天然落在 compose/podman 真正运行的那一侧，
+    不会出现"Windows 侧没有 /dev/dri 就误判为不可用"。
+    """
+    r = run_cmd(c, f"test -e {shlex.quote(path)}", hide=True, warn=True, echo=False)
+    return r is not None and getattr(r, "ok", False)
+
+
+def _runtime_cdi_available(c: Context) -> bool:
+    """探测宿主是否已生成 CDI 设备规格（``nvidia-ctk cdi generate`` 的产物）。"""
+    r = run_cmd(c, "ls /etc/cdi/*.yaml /var/run/cdi/*.yaml", hide=True, warn=True, echo=False)
+    return r is not None and getattr(r, "ok", False) and bool(
+        (getattr(r, "stdout", "") or "").strip()
+    )
+
+
+def check_nvidia_driver_health(c: Context, spec, token: str) -> None:
+    """CDI 透传前的宿主 NVIDIA 驱动健康探针（C19 的运行期可用性门禁）。
+
+    CDI 只负责把宿主要素（设备节点 + libcuda + nvidia-smi）注入容器，**不
+    修复宿主驱动自身的故障**。典型潜伏事故：apt 升级用户态驱动（如
+    595.71→595.91）后未重载内核模块/未重启，宿主 ``nvidia-smi`` 自身即报
+    ``Failed to initialize NVML: Driver/library version mismatch``——此时
+    容器按 CDI 正常创建，但容器内 CUDA 必然不可用。故在 up 之前前置探针，
+    把「容器外根因」翻译为可执行中文指引，而非让用户在容器里猜。
+
+    Intel/AMD（设备路径形态）与 WSL2（/dev/dxg 形态）不调用本函数。
+    """
+    r = run_cmd(c, "nvidia-smi", hide=True, warn=True, echo=False)
+    if r is not None and getattr(r, "ok", False):
+        return
+    raw = (
+        ((getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")).strip()
+        if r is not None else ""
+    )
+    first_line = raw.splitlines()[0] if raw else "nvidia-smi 执行失败（无输出）"
+    ns = spec.namespace
+    print(f"[{ns}] ⚠ {token} 经 CDI 透传依赖宿主 NVIDIA 驱动，但宿主 nvidia-smi 无法运行：")
+    print(f"[{ns}]   {first_line}")
+    if "version mismatch" in raw.lower() or "nvml" in raw.lower():
+        print(f"[{ns}]   典型原因：驱动升级后内核模块未重载（内核模块版本 ≠ 用户态库版本）。")
+        print(f"[{ns}]   对照版本：cat /proc/driver/nvidia/version  与  dpkg -l | grep nvidia-driver")
+        print(f"[{ns}]   修复（二选一）：")
+        print(f"[{ns}]     1) 重启宿主（推荐，自动对齐内核模块与用户态库）")
+        print(f"[{ns}]     2) 先停占用 GPU 的进程（fuser -v /dev/nvidia*），再：")
+        print(f"[{ns}]        sudo rmmod nvidia_uvm nvidia_drm nvidia_modeset nvidia "
+              f"&& sudo modprobe nvidia")
+    else:
+        print(f"[{ns}]   请排查宿主驱动：nvidia-smi；lsmod | grep nvidia；"
+              f"dmesg | tail -50 | grep -i nvrm")
+    print(f"[{ns}]   驱动恢复后重新生成 CDI 规格（/var/run/cdi 为 tmpfs，重启后丢失）：")
+    print(f"[{ns}]     sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml")
+    print(f"[{ns}]   然后重试：invoke {ns}.up --offline --gpu")
+    raise Exit(1)
+
+
+def _form_of_device(device: str) -> str:
+    """已知设备路径 → 形态；未登记的路径按通用形态处理（generic 覆盖即够）。"""
+    for known, form in GPU_DEVICE_FORMS:
+        if device == known:
+            return form
+    return "generic"
+
+
+def resolve_gpu_device(c: Context, spec: StackSpec, env: dict) -> tuple[str, str]:
+    """解析 GPU 设备令牌与形态，并把令牌**回写 os.environ**（单一事实源）。
+
+    为什么必须预检：compose 里的 ``devices`` 由 podman 在 create 阶段做
+    ``stat``，缺路径时只丢一句 ``Error: stat /dev/dri: no such file or
+    directory`` + exit 125（且次生 ``no container with name ... found``），
+    用户无从得知该改哪个键。故在 up 之前把判定与指引前置。
+
+    令牌优先级：shell export > root .env > 自动探测。
+      - ``/`` 开头：宿主机设备路径 → 存在性硬校验，形态按设备查表；
+      - 非 ``/`` 开头：CDI 引用（如 ``nvidia.com/gpu=all``）→ 校验宿主已生成
+        ``/etc/cdi`` 或 ``/var/run/cdi`` 下的 ``*.yaml``，并过宿主驱动健康探针；
+      - 空：自动探测，顺序为 **NVIDIA CDI（CDI 规格 + /dev/nvidiactl 双条件
+        满足时直接选 nvidia.com/gpu=all）→ /dev/dri → /dev/dxg**。
+
+    为什么 CDI 先于 /dev/dri：纯 NVIDIA 宿主加载 nvidia_drm 后同样注册
+    /dev/dri（card/render 节点），但 /dev/dri 形态不注入 libcuda 与
+    nvidia-smi，容器内 CUDA 必不可用（2026-09-20 双卡宿主真机故障）。
+    Intel/AMD 宿主既无 CDI 规格也无 /dev/nvidiactl，双条件不满足，自动
+    回退 /dev/dri，行为零变化。
+
+    wsl 形态额外校验 :data:`WSL_GPU_PATHS`（libcuda + libdxcore + drivers 目录）：
+    ``/dev/dxg`` 只是半虚拟化通道，三条路径缺任一都会让容器内 CUDA 不可用
+    （缺 ②③ 时表现为 CDLL 成功但设备枚举失败），故同样前置报错而非让 bind 裸报错。
+    """
+    key = spec.gpu_device_env or "GPU_DEVICE"
+    token = str(os.environ.get(key) or env.get(key) or "")
+
+    if token.startswith("/"):
+        if not _runtime_path_exists(c, token):
+            print(f"[{spec.namespace}] ⚠ {key}={token} 在 podman 宿主不存在，无法透传 GPU：")
+            print(f"[{spec.namespace}]   查看真实设备: ls /dev/dri /dev/dxg")
+            print(
+                f"[{spec.namespace}]   指定设备:     {key}=<设备路径> "
+                f"invoke {spec.namespace}.up --gpu"
+            )
+            print(f"[{spec.namespace}]   自动探测:     unset {key}"
+                  f"（缺省探测 NVIDIA CDI → /dev/dri → /dev/dxg）")
+            raise Exit(1)
+        form = _form_of_device(token)
+    elif token:
+        if not _runtime_cdi_available(c):
+            print(f"[{spec.namespace}] ⚠ {key}={token} 是 CDI 引用，但宿主未生成 CDI 规格：")
+            print("[%s]   先生成: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"
+                  % spec.namespace)
+            print(f"[{spec.namespace}]   或改用设备路径形态: {key}=/dev/dri")
+            raise Exit(1)
+        form = "generic"
+        # CDI 只搬运宿主要素；宿主驱动自身故障（如升级后版本失配）必须在此拦截。
+        check_nvidia_driver_health(c, spec, token)
+    else:
+        token, form = "", ""
+        # ① NVIDIA 原生宿主：CDI 规格 + 控制节点双条件满足 → CDI 引用优先。
+        if _runtime_cdi_available(c) and _runtime_path_exists(c, NVIDIA_CONTROL_NODE):
+            token, form = NVIDIA_CDI_TOKEN, "generic"
+            check_nvidia_driver_health(c, spec, token)
+        else:
+            # ② Intel/AMD（/dev/dri）与 WSL2（/dev/dxg）设备路径形态。
+            for device, candidate in GPU_DEVICE_FORMS:
+                if _runtime_path_exists(c, device):
+                    token, form = device, candidate
+                    break
+        if not token:
+            names = " / ".join(d for d, _ in GPU_DEVICE_FORMS)
+            print(f"[{spec.namespace}] ⚠ 未探测到可用 GPU 设备"
+                  f"（NVIDIA CDI 未配置，{names} 也均不存在），无法 --gpu：")
+            print(f"[{spec.namespace}]   NVIDIA 原生：sudo nvidia-ctk cdi generate "
+                  f"--output=/etc/cdi/nvidia.yaml 后重试（自动探测即走 CDI）")
+            print("[%s]   WSL2：确认 Windows 侧已装 NVIDIA 驱动（nvidia-smi 可用）"
+                  % spec.namespace)
+            print(f"[{spec.namespace}]   Intel/AMD：确认宿主已加载 i915/amdgpu 驱动")
+            print(f"[{spec.namespace}]   或显式指定: {key}=<设备路径或 CDI 引用>")
+            raise Exit(1)
+
+    if form == "wsl":
+        missing = [p for p in WSL_GPU_PATHS if not _runtime_path_exists(c, p)]
+        if missing:
+            print(f"[{spec.namespace}] ⚠ 检测到 {token}（WSL2 GPU），但宿主缺少以下路径：")
+            for path in missing:
+                print(f"[{spec.namespace}]     - {path}")
+            print("[%s]   以上由 WSL 宿主提供；请确认 Windows 侧 NVIDIA 驱动已安装"
+                  % spec.namespace)
+            print(f"[{spec.namespace}]   或强制通用形态（不挂 libcuda）: {key}=/dev/dri")
+            raise Exit(1)
+
+    os.environ[key] = token
+    return token, form
+
+
+# ---------------------------------------------------------------------------
+# 透传覆盖解析与门禁（host 网络/D-Bus/USB；与 C19 同族 opt-in 门禁）
+# ---------------------------------------------------------------------------
+
+
+def _runtime_socket_exists(c: Context, path: str) -> bool:
+    """在 podman 所在环境探测路径是否为 socket（``test -S``）。"""
+    r = run_cmd(c, f"test -S {shlex.quote(path)}", hide=True, warn=True, echo=False)
+    return r is not None and getattr(r, "ok", False)
+
+
+def _runtime_probe_session_bus(c: Context) -> str:
+    """在 podman 所在环境按标准优先级探测 D-Bus 会话总线 socket。
+
+    命中返回 socket 路径，全无命中返回 ``""``。探测顺序：
+      1. ``$DBUS_SESSION_BUS_ADDRESS`` 的 ``unix:path=``（去掉可能的 ``,guid=`` 尾段）；
+      2. ``$XDG_RUNTIME_DIR/bus``（systemd 用户会话标准位置）；
+      3. ``/run/user/$(id -u)/bus``（兜底动态推导）。
+
+    必须运行期探测、**不得硬编码 UID**：历史缺省 ``/run/user/1000/bus`` 在
+    UID≠1000 的宿主必然不存在（2026-09-24 物理 Linux 本机 UID=1006 实证，
+    会话总线实为 /run/user/1006/bus）。探测须落在 podman 真正运行的环境——
+    Windows 原生经 WSL 桥接时，Python 侧 ``os.environ`` 是 Windows 会话，
+    不反映 daemon 侧的 XDG_RUNTIME_DIR / id -u。
+    """
+    probe = (
+        'addr="${DBUS_SESSION_BUS_ADDRESS#unix:path=}"; addr="${addr%%,*}"; '
+        'for cand in "$addr" "$XDG_RUNTIME_DIR/bus" '
+        '"/run/user/$(id -u)/bus"; do '
+        'if [ -S "$cand" ]; then printf "%s" "$cand"; exit 0; fi; '
+        'done; exit 1'
+    )
+    r = run_cmd(c, probe, hide=True, warn=True, echo=False)
+    if r is None or not getattr(r, "ok", False):
+        return ""
+    return str(getattr(r, "stdout", "") or "").strip()
+
+
+def _runtime_listening_ports(c: Context, ports: list[str]) -> list[str]:
+    """返回 ``ss -lnt`` 中**此刻被监听**的给定端口子集。
+
+    ss 不可用（r 失败/无输出）时返回空列表跳过——与孤儿端口回收同族
+    「ss 缺失则跳过」的不阻断原则；判据为 Local Address 列以 ``:<端口>``
+    收尾（IPv4 ``0.0.0.0:p`` / IPv6 ``[::]:p``），不做进程归属判断。
+    """
+    r = run_cmd(c, "ss -lnt", hide=True, warn=True, echo=False)
+    text = (getattr(r, "stdout", "") or "") if r is not None else ""
+    if not text.strip():
+        return []
+    return [
+        p
+        for p in ports
+        if re.search(r":" + re.escape(p) + r"\s", text)
+    ]
+
+
+def resolve_host_podman_socket(c: Context, spec: StackSpec, env: dict) -> str:
+    """B-scheme 预检：确保宿主 rootless podman socket 就绪并解析挂载令牌。
+
+    三叠加栈均 extends 基底 jupyter-podman-rootless 镜像；其 entrypoint 在
+    无 ``HOST_PODMAN_SOCK`` 时**静默回退容器内自建 rootless daemon（DinP）**。
+    rootless 容器内再嵌套 rootless 必被 ``newuidmap`` 拒（``write to uid_map
+    failed: Operation not permitted``），socket 永不生成，而 entrypoint 仍
+    导出指向死路径的 CONTAINER_HOST——直到 Notebook 里
+    ``PodmanClient.from_env()`` 才报 FileNotFoundError（2026-09-24
+    native-dev 实证；旧 B-scheme 修复只接了 jupyter 主栈 compose 与
+    invoke run，三个叠加栈漏接，非回归而是覆盖盲区）。
+
+    故受管叠加栈与 ``client_core.run_container`` 同口径：up 前先确保宿主
+    socket 就绪（Linux 免提权自愈 ``systemctl --user start podman.socket``；
+    非 Linux/容器内/非 podman 自动放行），再把令牌写入 ``os.environ`` 供
+    compose 的 source/target/env 三处插值。compose 挂载契约是
+    **source == target == HOST_PODMAN_SOCK**（entrypoint 在容器内按该值
+    ``test -S`` 并建符号链接/属组衔接）。
+
+    令牌优先级：shell export > 根 .env（load_dotenv override=False）>
+    :func:`podman_sock_path` 运行期推导（UID 不硬编码）。
+    """
+    ns = spec.namespace
+    ready, detail, started = ensure_host_podman_socket()
+    if not ready:
+        print(f"[{ns}] ⚠ B-scheme 宿主 rootless podman socket 未就绪——容器内 "
+              "Notebook/CLI 的 PodmanClient 需要经它复用宿主 daemon；")
+        print(f"[{ns}]   entrypoint 的容器内自建 daemon 回退在嵌套 rootless 下"
+              "不可用（newuidmap: Operation not permitted）。")
+        print(bsock_missing_guidance(detail))
+        raise Exit(1)
+    # 各候选先 strip 再判空：纯空白令牌（truthy）不得落到 compose/entrypoint——
+    # env 空串会让 entrypoint `[ -n ]` 落空回退 DinP，而 ${VAR:-default}
+    # 挂载却回退 1000，形成静默不一致（评审加固，2026-09-24）。
+    token = (
+        str(os.environ.get("HOST_PODMAN_SOCK") or "").strip()
+        or str(env.get("HOST_PODMAN_SOCK") or "").strip()
+        or podman_sock_path()
+    )
+    os.environ["HOST_PODMAN_SOCK"] = token
+    env["HOST_PODMAN_SOCK"] = token
+    if started:
+        print(f"[{ns}][B-scheme] 已自动启动宿主 rootless podman socket 服务: {token}")
+    return token
+
+
+def resolve_passthrough(
+    c: Context, spec: StackSpec, env: dict, *, check_ports: bool = True
+) -> tuple[str, str]:
+    """透传主层门禁：D-Bus 会话 socket 存在 + host 端口无外部占用。
+
+    ``check_ports=False`` 用于冒烟路径：standalone 裸 ``podman run`` 不占
+    8888/SSH 端口，跳过检查可简化夹具。端口占用若由**本栈正在运行的 host
+    形态容器**持有（重复 up），属幂等场景：打印提示后放行交 podman-compose
+    处理，不再 fail-fast（2026-09-23 实证修复）；其余占用保持 fail-fast。
+    D-Bus socket 检查与令牌回写不受影响。
+
+    为什么前置（与 GPU 同族）：D-Bus bind 源缺失时 podman 只报 exit 125；
+    host 网络下容器直接绑宿主端口，8888（Jupyter 固定）或 SSH 端口被占时
+    容器虽起但服务不可达——都是**容器创建期之后才暴露**的故障。故在任何
+    down/up 之前判定并翻译成中文可执行指引。
+
+    令牌优先级：shell export > root .env > 运行期自动探测（见
+    :func:`_runtime_probe_session_bus`；历史缺省硬编码 /run/user/1000/bus
+    已废弃——UID 随宿主而变）。回写 os.environ 供 compose 插值
+    （DBUS_SESSION_BUS_PATH / HOST_NET_SSHD_PORT），返回两者解析值。
+    """
+    ns = spec.namespace
+    explicit = str(
+        os.environ.get("DBUS_SESSION_BUS_PATH")
+        or env.get("DBUS_SESSION_BUS_PATH")
+        or ""
+    ).strip()
+    if explicit:
+        # 显式令牌（shell export > .env）：尊重用户选择，仅校验是否为 socket。
+        if not _runtime_socket_exists(c, explicit):
+            print(f"[{ns}] ⚠ --passthrough 需要宿主 D-Bus 会话总线，但显式指定的 "
+                  f"{explicit} 不是 socket：")
+            print(f"[{ns}]   物理 Linux 核对：ls -l \"$XDG_RUNTIME_DIR/bus\""
+                  "（实际路径按当前登录用户，UID 未必是 1000）；")
+            print(f"[{ns}]   WSL2：podman machine 内须有 user 会话——可在发行版内以普通")
+            print("           用户执行 `sudo systemctl start dbus`（系统总线）后改用")
+            print(f"           DBUS_SESSION_BUS_PATH=/run/dbus/system_bus_socket invoke "
+                  f"{ns}.up --passthrough")
+            print(f"[{ns}]   不需要 D-Bus 时直接去掉 --passthrough。")
+            raise Exit(1)
+        dbus_path = explicit
+    else:
+        # 无显式令牌：在 podman 运行环境动态探测（$DBUS_SESSION_BUS_ADDRESS →
+        # $XDG_RUNTIME_DIR/bus → /run/user/$(id -u)/bus），不硬编码任何 UID。
+        dbus_path = _runtime_probe_session_bus(c)
+        if not dbus_path:
+            print(f"[{ns}] ⚠ --passthrough 需要宿主 D-Bus 会话总线，但未在 podman "
+                  "所在环境探测到会话总线 socket：")
+            print(f"[{ns}]   已按顺序探测：$DBUS_SESSION_BUS_ADDRESS(unix:path=) "
+                  "→ $XDG_RUNTIME_DIR/bus → /run/user/$(id -u)/bus")
+            print(f"[{ns}]   物理 Linux：确认用户会话已登录（loginctl）且用户总线在跑：")
+            print("           loginctl list-sessions；systemctl --user is-active "
+                  "default.target")
+            print(f"[{ns}]   WSL2：podman machine 内须有 user 会话——可在发行版内以普通")
+            print("           用户执行 `sudo systemctl start dbus`（系统总线）后改用")
+            print(f"           DBUS_SESSION_BUS_PATH=/run/dbus/system_bus_socket invoke "
+                  f"{ns}.up --passthrough")
+            print(f"[{ns}]   不需要 D-Bus 时直接去掉 --passthrough。")
+            raise Exit(1)
+    sshd_port = str(
+        os.environ.get("HOST_NET_SSHD_PORT")
+        or env.get("HOST_NET_SSHD_PORT")
+        or spec.ssh_default
+    )
+    busy = _runtime_listening_ports(c, ["8888", sshd_port]) if check_ports else []
+    if busy:
+        if _own_host_container_running(c, spec):
+            # 幂等场景：占用者就是本栈正在运行的 host 形态容器——重复 up 交
+            # podman-compose 处理，不由门禁拦截（详见 helper docstring）。
+            print(f"[{ns}] ℹ --passthrough 端口 {', '.join(busy)} 由本栈正在运行的 "
+                  f"host 形态容器持有（重复 up 幂等场景，不拦截）")
+            print(f"[{ns}]   文件集无变化 → no-op；组合旗标有变化 → podman-compose "
+                  f"自动 recreate")
+            print(f"[{ns}]   如需强制重建：invoke {ns}.down && invoke "
+                  f"{ns}.up --passthrough ...")
+        else:
+            print(f"[{ns}] ⚠ --passthrough 走 host 网络，容器要直接绑定宿主端口，"
+                  f"但以下端口已被占用：{', '.join(busy)}")
+            print(f"[{ns}]   host 形态端口固定：Jupyter 8888、SSH {sshd_port}")
+            print(f"[{ns}]   处理：① 停掉占用栈（如 invoke quant.down / invoke native.down）；")
+            print(f"         ② 或换 SSH 端口：HOST_NET_SSHD_PORT=<空闲端口> invoke "
+                  f"{ns}.up --passthrough")
+            print(f"[{ns}]   查看占用：ss -lntp")
+            raise Exit(1)
+    os.environ["DBUS_SESSION_BUS_PATH"] = dbus_path
+    os.environ["HOST_NET_SSHD_PORT"] = sshd_port
+    return dbus_path, sshd_port
+
+
+def resolve_usb_device(c: Context, spec: StackSpec, env: dict) -> str:
+    """USB 透传门禁：设备路径在 podman 宿主存在（缺路径时 podman exit 125）。
+
+    WSL2 宿主默认无 USB 总线（本机实测 ``/dev/bus/usb`` 不存在）：须先用
+    usbipd-win 把 Windows 侧 USB 设备转发到 podman-machine-default 发行版。
+    令牌优先级：shell export > root .env > ``/dev/bus/usb``；回写 os.environ。
+    """
+    ns = spec.namespace
+    token = str(
+        os.environ.get("USB_DEVICE") or env.get("USB_DEVICE") or "/dev/bus/usb"
+    )
+    if not _runtime_path_exists(c, token):
+        print(f"[{ns}] ⚠ --usb 需要 USB 设备，但 {token} 在 podman 宿主不存在：")
+        print(f"[{ns}]   WSL2 宿主默认无 USB 总线；在 Windows PowerShell 用 "
+              "usbipd-win 转发：")
+        print("           usbipd list")
+        print("           usbipd bind --busid <BUSID>   # 需管理员；装有火绒时加 --force")
+        print("           usbipd attach --wsl podman-machine-default --busid <BUSID>")
+        print(f"[{ns}]     attach 后重跑本命令（验证：ls /dev/bus/usb）。")
+        print(f"[{ns}]   物理 Linux：lsusb 核对设备；或显式指定单设备 "
+              f"USB_DEVICE=/dev/bus/usb/001/002")
+        print(f"[{ns}]   不需要 USB 时去掉 --usb。")
+        raise Exit(1)
+    os.environ["USB_DEVICE"] = token
+    return token
+
+
+# GUI 三种显示形态（探测全部落在 daemon 宿主侧，禁止本机 Path.exists()，同
+# C19；socket 源缺失时 podman 只报 exit 125，故与 GPU/USB/D-Bus 同族在任何
+# down/up 之前前置探测）：
+#   wayland  — Wayland AF_UNIX socket，bind 单文件（compose.passthrough.gui.yaml）；
+#   x11      — X11 AF_UNIX socket，bind 整个 socket 目录（...gui.x11.yaml）；
+#   x11-tcp  — X11 over TCP，即 `ssh -X` 的 127.0.0.1:60<n> 转发，**仅 host
+#              网络形态**（--passthrough）可达容器，需注入 xauth cookie
+#              （...gui.x11.tcp.yaml，只写 environment + cookie 文件 bind）。
+#
+# 会话目录动态推导（$XDG_RUNTIME_DIR → /run/user/$(id -u)），**禁止写死
+# 1000**：同模块 D-Bus 探测 2026-09-24 已因物理 Linux 本机 UID=1006 实证改
+# 动态，GUI 旧默认 /run/user/1000 是未同步的覆盖盲区；/run/user/1000 仅作
+# 历史兜底保留。/mnt/wslg 是 WSL2 podman machine 内 WSLg 的固定挂载
+# （2026-09-23 真机实证 wayland-0 与 .X11-unix/X0 均为 0777 socket）。
+GUI_WAYLAND_DISPLAY_DEFAULT = "wayland-0"
+GUI_WAYLAND_FALLBACK_DIRS = ("/mnt/wslg/runtime-dir", "/run/user/1000")
+GUI_X11_UNIX_FALLBACK_DIRS = (
+    "/mnt/wslg/.X11-unix",
+    "/tmp/.X11-unix",
+)
+# SSH X11 转发只接受 loopback：绝不把容器引向任意远程 X server（安全面），
+# 且 host 网络下也只有宿主 loopback 对容器可达。显示号 n → 端口 6000+n。
+GUI_X11_TCP_HOSTS = ("localhost", "127.0.0.1", "::1")
+GUI_X11_TCP_PORT_BASE = 6000
+# 自动抽取 cookie 后生成的 FamilyWild 最小授权文件名（落会话运行时目录）。
+GUI_XAUTHORITY_NAME_TMPL = "gui-xauthority-{display}"
+
+
+def _runtime_session_gui_env(c: Context) -> tuple[str, str, str]:
+    """daemon 宿主当前会话的 ``(XDG_RUNTIME_DIR, WAYLAND_DISPLAY, DISPLAY)``。
+
+    目录按 ``$XDG_RUNTIME_DIR → /run/user/$(id -u)`` 动态推导（UID 不硬编码，
+    同 :func:`_runtime_probe_session_bus`）；WAYLAND_DISPLAY 缺省 wayland-0。
+    探测必须落 podman 宿主——Windows 原生经 WSL 桥接时本函数只在发行版内
+    执行（桥接 Exit 0），Python 侧 os.environ 是 Windows 会话，不反映 daemon
+    侧的 XDG_RUNTIME_DIR / DISPLAY。失败返回空目录元组，由调用方回退固定候选。
+    """
+    probe = (
+        'd="${XDG_RUNTIME_DIR:-}"; [ -z "$d" ] && d="/run/user/$(id -u)"; '
+        'w="${WAYLAND_DISPLAY:-' + GUI_WAYLAND_DISPLAY_DEFAULT + '}"; '
+        'x="${DISPLAY:-}"; printf \'%s\\t%s\\t%s\' "$d" "$w" "$x"'
+    )
+    r = run_cmd(c, probe, hide=True, warn=True, echo=False)
+    text = str(getattr(r, "stdout", "") or "") if r is not None else ""
+    parts = text.rstrip("\n").split("\t", 2)
+    if len(parts) == 3 and parts[0]:
+        return parts[0], parts[1] or GUI_WAYLAND_DISPLAY_DEFAULT, parts[2]
+    return "", GUI_WAYLAND_DISPLAY_DEFAULT, ""
+
+
+def _dedup_keep_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
+def parse_x11_tcp_display(value: str) -> Optional[tuple[str, int]]:
+    """解析 X11 的 TCP 形态 ``[host]:display[.screen]``，仅接受 loopback。
+
+    返回规范化的 ``(host, display_no)``（localhost 归一为 127.0.0.1）；
+    unix 形态（``:0``/无 host）、非 loopback 主机、非法显示号一律返回 None。
+    后两者的严格拒绝是安全约束：--gui 不得把容器指向用户未明示可达性的
+    远程 X server。
+    """
+    text = (value or "").strip()
+    if not text or text.startswith(":"):
+        return None
+    # 显示号在最后一个冒号之后——host 可能是 bracketed IPv6（[::1]:2），
+    # partition 会在地址内部的冒号切开。
+    host, _, rest = text.rpartition(":")
+    num = rest.split(".", 1)[0]
+    if not rest or not num.isdigit():
+        return None
+    host = host.strip("[]").lower()
+    if host not in GUI_X11_TCP_HOSTS:
+        return None
+    display_no = int(num)
+    if not 0 <= display_no <= 99:
+        return None
+    norm_host = "::1" if host == "::1" else "127.0.0.1"
+    return norm_host, display_no
+
+
+def parse_x11_unix_display(value: str) -> int:
+    """解析 unix 形态 ``:n[.screen]`` 的显示号；非法/缺失返回 0（X0）。"""
+    match = re.fullmatch(r":(\d+)(?:\.\d+)?", (value or "").strip())
+    return int(match.group(1)) if match else 0
+
+
+def _runtime_tcp_open(c: Context, host: str, port: int) -> bool:
+    """daemon 宿主侧 TCP 连通探测（bash /dev/tcp，2s 超时）。
+
+    注意：TCP 可连**不等于**对端是健康 X server——SSH 转发会话失效后
+    60xx 可能仍 LISTEN 但 X 握手被 RST（2026-09-28 本机实证）。故本探测
+    只证明「有服务接受连接」，cookie/协议层失败仍会在容器侧暴露，诊断
+    文案必须覆盖连接被重置的失效会话场景。
+    """
+    r = run_cmd(
+        c,
+        f"timeout 2 bash -c {shlex.quote(f'exec 3<>/dev/tcp/{host}/{port}')}",
+        hide=True, warn=True, echo=False,
+    )
+    return r is not None and getattr(r, "ok", False)
+
+
+def _runtime_x11_probe(c: Context, host: str, port: int) -> bool:
+    """daemon 宿主侧 X11 **协议握手**探针（裸 TCP 可连不算数）。
+
+    发固定 44 字节 X11 Connection（11.0 + MIT-MAGIC-COOKIE-1 + 全零 cookie），
+    读响应首字节：``l``(108)/``B``(66) 才是 X server（授权被拒也会回字节序
+    字节 + 非 0 reason——本探针只判协议身份，不判 cookie 对错）。两类假端口
+    必须排除（2026-09-28 本机实证）：sshd 失效转发 accept 后立刻 RST → 读空；
+    占用 60xx 段的 HTTP 服务 → 首字节是 ``H``（``HTTP/1.1``）。
+    """
+    body = (
+        b"l\x00"
+        + struct.pack(">HHHH", 11, 0, len(b"MIT-MAGIC-COOKIE-1"), 16)
+        + b"MIT-MAGIC-COOKIE-1"
+        + b"\x00" * 16
+    )
+    packet = "".join(f"\\x{byte:02x}" for byte in body)
+    inner = (
+        f"exec 3<>/dev/tcp/{host}/{port} && "
+        f"printf '{packet}' >&3 && "
+        "head -c 1 <&3 | od -An -tu1 | tr -d ' \\n'"
+    )
+    r = run_cmd(
+        c, f"timeout 2 bash -c {shlex.quote(inner)}",
+        hide=True, warn=True, echo=False,
+    )
+    text = str(getattr(r, "stdout", "") or "").strip() if r is not None else ""
+    return text in {"108", "66"}
+
+
+def _runtime_active_x11_displays(c: Context) -> list[tuple[str, int]]:
+    """列出 daemon 宿主经 X11 握手确认存活的 loopback 转发 ``(host, display_no)``。
+
+    ``ss`` 的 :60xx 只是必要条件：逐个做协议握手复核，排除僵尸 sshd 转发与
+    占用同段端口的非 X 服务（如 6060 上的 HTTP）。只保留 loopback 绑定——
+    诊断语义是「ssh -X 转发」，不把外部 X server 误报为可复用会话。
+    """
+    r = run_cmd(c, "ss -lnt", hide=True, warn=True, echo=False)
+    text = str(getattr(r, "stdout", "") or "") if r is not None else ""
+    found: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    for line in text.splitlines()[1:]:
+        cols = line.split()
+        if len(cols) < 4:
+            continue
+        match = re.fullmatch(r"(?:\[(.+)\]|(.+)):60(\d{2})", cols[3])
+        if not match:
+            continue
+        raw_host, display_no = (match.group(1) or match.group(2)), int(match.group(3))
+        if raw_host not in ("127.0.0.1", "localhost", "::1", "*", "0.0.0.0"):
+            continue
+        host = "::1" if raw_host == "::1" else "127.0.0.1"
+        key = (host, display_no)
+        if key in seen:
+            continue
+        seen.add(key)
+        if _runtime_x11_probe(c, host, GUI_X11_TCP_PORT_BASE + display_no):
+            found.append(key)
+    return sorted(found, key=lambda item: item[1])
+
+
+def _xauth_take16(buf: bytes, offset: int) -> tuple[bytes, int]:
+    length = struct.unpack(">H", buf[offset:offset + 2])[0]
+    offset += 2
+    return buf[offset:offset + length], offset + length
+
+
+def extract_xauth_entry(
+    data: bytes, display_no: int
+) -> Optional[tuple[bytes, bytes]]:
+    """从 .Xauthority 字节流抽取指定显示号的首条 ``(protocol, cookie)``。
+
+    纯函数、零第三方依赖（Xauthority 为 family(u16)+4 段 u16 长度前缀串）。
+    无匹配返回 None。调用方不得把 cookie 明文写入日志。
+    """
+    target = str(display_no).encode()
+    offset = 0
+    while offset < len(data) - 2:
+        try:
+            offset += 2  # family
+            address, offset = _xauth_take16(data, offset)
+            number, offset = _xauth_take16(data, offset)
+            proto, offset = _xauth_take16(data, offset)
+            cookie, offset = _xauth_take16(data, offset)
+        except struct.error:
+            return None
+        if number == target and proto and cookie:
+            return proto, cookie
+    return None
+
+
+def encode_familywild_xauth(display_no: int, proto: bytes, cookie: bytes) -> bytes:
+    """编码为单条 FamilyWild(0) Xauthority 记录。
+
+    FamilyWild 对 X 客户端连接的任意地址族通配——容器经 127.0.0.1 连宿主
+    SSH 转发 proxy 时，客户端地址与宿主条目的 ``Alg`` 地址不匹配，精确
+    条目不会被 Xlib 选中，必须用 FamilyWild。
+    """
+    out = struct.pack(">H", 0)
+    for chunk in (b"", str(display_no).encode(), proto, cookie):
+        out += struct.pack(">H", len(chunk)) + chunk
+    return out
+
+
+def _prepare_x11_tcp_authority(
+    env: dict, display_no: int, session_dir: str
+) -> tuple[str, str]:
+    """准备 X11 TCP 形态的 xauth 授权文件，返回 ``(路径, 失败原因)``。
+
+    显式 ``GUI_XAUTHORITY_FILE``（shell export > .env）优先且原样采用；
+    否则从本机 ``~/.Xauthority`` 抽取 display 条目，在会话运行时目录生成
+    FamilyWild 单条最小文件。物理 Linux 下 daemon 宿主即本机，路径同视图；
+    WSL 桥接进程在桥接处 Exit 0、不会执行到本函数。
+
+    文件权限 0644：rootless 容器内 devuser 是子 uid，0600 单文件 bind 后
+    容器内不可读；宿主侧由会话目录（``$XDG_RUNTIME_DIR``，0700）兜底防
+    遍历。不得把 cookie 内容打印到日志。
+    """
+    explicit = str(
+        os.environ.get("GUI_XAUTHORITY_FILE")
+        or env.get("GUI_XAUTHORITY_FILE")
+        or ""
+    ).strip()
+    if explicit:
+        if os.path.isfile(explicit):
+            return explicit, ""
+        return "", f"显式指定的 GUI_XAUTHORITY_FILE={explicit} 在本机不是文件"
+    source = os.path.expanduser("~/.Xauthority")
+    try:
+        entry = extract_xauth_entry(Path(source).read_bytes(), display_no)
+    except OSError:
+        return "", f"无 {source}（SSH X11 转发的 cookie 由 sshd 写入该文件）"
+    if entry is None:
+        return "", f"{source} 中没有显示号 :{display_no} 的 xauth 条目"
+    proto, cookie = entry
+    dest_dir = session_dir or "/tmp"
+    dest = os.path.join(dest_dir, GUI_XAUTHORITY_NAME_TMPL.format(display=display_no))
+    try:
+        Path(dest_dir).mkdir(parents=True, exist_ok=True)
+        Path(dest).write_bytes(encode_familywild_xauth(display_no, proto, cookie))
+        os.chmod(dest, 0o644)
+    except OSError as exc:
+        return "", f"写入 xauth 授权文件 {dest} 失败：{exc}"
+    return dest, ""
+
+
+def resolve_gui(
+    c: Context, spec: StackSpec, env: dict, *, host_network: bool = False
+) -> tuple[str, ...]:
+    """GUI 透传门禁：在 podman 宿主探测 Wayland / X11(unix) / X11(TCP)。
+
+    返回命中形态序列（``wayland`` / ``x11`` / ``x11-tcp`` 的子集，顺序固定），
+    并把 compose 插值令牌回写 ``os.environ``：
+
+      - wayland：``GUI_WAYLAND_SOCKET`` + ``HOST_WAYLAND_DISPLAY``；
+      - x11（AF_UNIX）：``GUI_X11_SOCKETDIR`` + ``GUI_DISPLAY=:n``；
+      - x11-tcp（SSH 转发）：``GUI_DISPLAY=127.0.0.1:n`` +
+        ``GUI_XAUTHORITY_FILE``；**仅 ``host_network=True``（--passthrough）
+        时可用**——bridge 容器无法路由宿主 loopback。
+
+    Wayland 与 X11 两通道正交（可并存）；x11 与 x11-tcp 是同一显示服务的
+    两种传输，**互斥**，unix 命中即不再探 TCP。任一形态命中即放行；皆缺
+    才 fail-fast，且诊断按实际证据（失效 SSH 会话 / bridge 拦截 / 缺
+    cookie）给可执行指引。令牌优先级：shell export > root .env > 探测默认。
+    """
+    ns = spec.namespace
+    session_dir, session_wl, session_display = _runtime_session_gui_env(c)
+
+    # ── Wayland（AF_UNIX）：显式 HOST_XDG → 会话动态目录 → WSLg → 1000 兜底 ──
+    wayland_name = str(
+        os.environ.get("HOST_WAYLAND_DISPLAY")
+        or env.get("HOST_WAYLAND_DISPLAY")
+        or session_wl
+        or GUI_WAYLAND_DISPLAY_DEFAULT
+    )
+    explicit_xdg = str(
+        os.environ.get("HOST_XDG_RUNTIME_DIR")
+        or env.get("HOST_XDG_RUNTIME_DIR")
+        or ""
+    ).strip()
+    wayland_dirs = _dedup_keep_order(
+        ([explicit_xdg] if explicit_xdg else [])
+        + ([session_dir] if session_dir else [])
+        + list(GUI_WAYLAND_FALLBACK_DIRS)
+    )
+    wayland_socket = next(
+        (
+            f"{directory}/{wayland_name}"
+            for directory in wayland_dirs
+            if _runtime_socket_exists(c, f"{directory}/{wayland_name}")
+        ),
+        "",
+    )
+
+    # ── X11（AF_UNIX）：显式目录 → 会话 .X11-unix → WSLg → /tmp 兜底 ──
+    unix_no = parse_x11_unix_display(
+        str(os.environ.get("GUI_DISPLAY") or env.get("GUI_DISPLAY") or "")
+    )
+    x11_socket_name = f"X{unix_no}"
+    explicit_x11_dir = str(
+        os.environ.get("GUI_X11_SOCKETDIR") or env.get("GUI_X11_SOCKETDIR") or ""
+    ).strip()
+    x11_dirs = _dedup_keep_order(
+        ([explicit_x11_dir] if explicit_x11_dir else [])
+        + ([f"{session_dir}/.X11-unix"] if session_dir else [])
+        + list(GUI_X11_UNIX_FALLBACK_DIRS)
+    )
+    # WSLg 首选 /mnt/wslg/.X11-unix（真实目录）；/tmp/.X11-unix 在部分版本是
+    # 指向它的符号链接，挂源由候选顺序规避。判据是目录内 X<n> socket 真实存在。
+    x11_found = next(
+        (
+            directory
+            for directory in x11_dirs
+            if _runtime_socket_exists(c, f"{directory}/{x11_socket_name}")
+        ),
+        "",
+    )
+
+    # ── X11 over TCP（ssh -X 转发）：unix 未命中时才考虑，仅 loopback ──
+    tcp_raw = str(
+        os.environ.get("GUI_X11_TCP_DISPLAY")
+        or env.get("GUI_X11_TCP_DISPLAY")
+        or session_display
+        or ""
+    ).strip()
+    parsed_tcp = parse_x11_tcp_display(tcp_raw)
+    tcp_open: Optional[tuple[str, int, int]] = None
+    tcp_dead: Optional[tuple[str, int, int]] = None
+    if parsed_tcp is not None and not x11_found:
+        tcp_host, tcp_no = parsed_tcp
+        tcp_port = GUI_X11_TCP_PORT_BASE + tcp_no
+        if _runtime_tcp_open(c, tcp_host, tcp_port):
+            tcp_open = (tcp_host, tcp_no, tcp_port)
+        else:
+            tcp_dead = (tcp_host, tcp_no, tcp_port)
+
+    forms: list[str] = []
+    if wayland_socket:
+        os.environ["GUI_WAYLAND_SOCKET"] = wayland_socket
+        os.environ["HOST_WAYLAND_DISPLAY"] = wayland_name
+        forms.append("wayland")
+    if x11_found:
+        os.environ["GUI_X11_SOCKETDIR"] = x11_found
+        os.environ["GUI_DISPLAY"] = f":{unix_no}"
+        forms.append("x11")
+
+    tcp_needs_passthrough = False
+    tcp_auth_reason = ""
+    if tcp_open is not None and not x11_found:
+        if not host_network:
+            # 端口在宿主 loopback 活着，但 bridge 容器不可路由——不能静默换
+            # 形态下发，交 fail-fast 给出组合旗标指引。
+            tcp_needs_passthrough = True
+        else:
+            auth_path, auth_reason = _prepare_x11_tcp_authority(
+                env, tcp_open[1], session_dir
+            )
+            if auth_path:
+                os.environ["GUI_DISPLAY"] = f"{tcp_open[0]}:{tcp_open[1]}"
+                os.environ["GUI_XAUTHORITY_FILE"] = auth_path
+                forms.append("x11-tcp")
+            else:
+                tcp_auth_reason = auth_reason
+
+    if forms:
+        return tuple(forms)
+
+    # ── 全部未命中：按实际证据聚合可执行指引（C10 修复即闭环） ──
+    print(f"[{ns}] ⚠ --gui 需要 GUI 显示通道，但在 podman 宿主未探测到"
+          " 可用的 Wayland/X11：")
+    print(f"[{ns}]   Wayland 已探测：{', '.join(wayland_dirs)}（socket 名 {wayland_name}）")
+    print(f"[{ns}]   X11 unix 已探测：{', '.join(x11_dirs)}（{x11_socket_name}）")
+    if tcp_dead is not None:
+        _, dead_no, dead_port = tcp_dead
+        active = [
+            f"{host}:{GUI_X11_TCP_PORT_BASE + no}（显示 :{no}）"
+            for host, no in _runtime_active_x11_displays(c)
+        ]
+        print(f"[{ns}]   ℹ 检测到 SSH X11 转发 DISPLAY={tcp_raw}，但端口 "
+              f"{dead_port} 无响应——SSH 会话可能已失效（转发器随会话退出）；")
+        print("           请用 `ssh -X`（或 ssh -Y）重新登录后再执行本命令；"
+              f"经 X11 握手确认存活的 loopback 转发："
+              f"{', '.join(active) if active else '无（僵尸转发与 60xx 上的非 X11 服务已排除）'}。")
+        print("           自查：ss -lnt | grep 60 后须确认为 ssh -X 转发；"
+              "不要凭陈旧 DISPLAY 猜测。")
+    if tcp_needs_passthrough:
+        _, bridge_no, bridge_port = tcp_open
+        print(f"[{ns}]   ℹ 检测到活跃的 SSH X11 转发 :{bridge_no}（端口 "
+              f"{bridge_port}），但它只在宿主 loopback 监听：")
+        print("           bridge 网络的容器不可路由该端口——X11/TCP 形态必须叠加"
+              " host 网络，请改用：")
+        print(f"           invoke {ns}.up --passthrough --gui（可与 --offline 等"
+              "正交组合）")
+    if tcp_auth_reason:
+        print(f"[{ns}]   ℹ X11/TCP 端口可达但 xauth 授权缺失：{tcp_auth_reason}；")
+        print("           重新 `ssh -X` 登录可生成 cookie；或手工准备只含该显示的"
+              "授权文件后用 GUI_XAUTHORITY_FILE=<路径> 指定。")
+    print(f"[{ns}]   WSL2（Windows 11 WSLg）：`ls /mnt/wslg/runtime-dir/wayland-0 "
+          "/mnt/wslg/.X11-unix/X0` 应见 socket；WSLg 为 Win11 内置组件"
+          "（Windows 10 不支持）。")
+    print(f"[{ns}]   物理 Linux 本地会话：Wayland 设 "
+          "HOST_XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR；本机 X11 unix socket 需 "
+          "`xhost local:root` 放行；")
+    print(f"           SSH 远程（ssh -X，无本地桌面）：使用 --passthrough --gui，"
+          "内核自动探测 loopback 转发并注入 xauth cookie。")
+    print(f"[{ns}]   不需要 GUI 时去掉 --gui。")
+    raise Exit(1)
+
+
+def _local_image_exists(c: Context, img_tag: str) -> bool:
+    """本地镜像存在性（``podman image exists``）。"""
+    r = run_cmd(
+        c, f"{detect_runtime()} image exists {img_tag}",
+        hide=True, warn=True, echo=False,
+    )
+    return r is not None and getattr(r, "ok", False)
+
+
+def _local_image_id(c: Context, img_tag: str) -> str | None:
+    """读取本地镜像 ID（``podman inspect -f {{.Id}}``）；不存在/失败返回 None。"""
+    r = run_cmd(
+        c,
+        f"{detect_runtime()} inspect -f '{{{{.Id}}}}' {img_tag}",
+        hide=True, warn=True, echo=False,
+    )
+    if r is not None and getattr(r, "ok", False):
+        return (getattr(r, "stdout", "") or "").strip() or None
+    return None
+
+
+def ensure_passthrough_tag(
+    c: Context, spec: StackSpec, env: dict, *, offline: bool
+) -> tuple[str, bool]:
+    """确保透传栈镜像 tag 就位，返回 ``(该 tag, 是否发生陈旧收敛)``。
+
+    host 网络/D-Bus/USB 全是运行期维度（与「GPU 是运行期维度」同理），
+    透传栈与默认栈镜像内容零差异——两 tag 的契约是**永远指向同一镜像 ID**：
+
+    - 专用 tag 缺失：从基础 tag ``podman tag``（秒级、零额外空间）；
+    - 两 tag 均在但 ID 不一致（镜像重建后透传 tag 陈旧）：重新打 tag 收敛，
+      并返回 ``converged=True``；否则重建引入的修复对透传栈永远不生效。
+    - 基础 tag 不在本地（``--skip-build``/离线仅透传 tag 存在）：沿用透传 tag。
+
+    ``converged`` 的语义是**陈旧指针被刷新**（仅 ID 不一致分支）：tag 是镜像
+    仓库内的指针文件，重打不触及任何容器——已在跑的透传容器仍快照旧镜像，
+    podman-compose 1.x 的 ``up`` 也不比对容器镜像 ID 与 tag 当前 ID（2026-09-28
+    对照实证），故调用方须据此下发 ``--force-recreate``。首次缺失补打不算收敛
+    （此时容器尚不存在，普通创建即可）。
+
+    ID 读取失败：警告并沿用（保守不阻断）。
+    两个 tag 均不在本地：fail-fast。
+    """
+    ns = spec.namespace
+    pt_tag = str(
+        os.environ.get(spec.passthrough_image_env)
+        or env.get(spec.passthrough_image_env)
+        or spec.passthrough_tag_default
+    )
+    base_tag = image_tag(spec, env)
+    pt_exists = _local_image_exists(c, pt_tag)
+    base_exists = base_tag != pt_tag and _local_image_exists(c, base_tag)
+    if pt_exists and base_exists:
+        pt_id = _local_image_id(c, pt_tag)
+        base_id = _local_image_id(c, base_tag)
+        if pt_id and base_id:
+            if pt_id != base_id:
+                print(f"[{ns}] ℹ 透传镜像 {pt_tag} 已过期（与 {base_tag} 镜像 ID "
+                      f"不一致），从 {base_tag} 重新打 tag（镜像内容相同，零额外空间）…")
+                run_cmd(c, f"{detect_runtime()} tag {base_tag} {pt_tag}", hide=True)
+                print(f"[{ns}] ℹ tag 已收敛：本次 up 将以 --force-recreate 重建"
+                      "透传容器（bind 挂载的工作目录不受影响，仅容器层未保存"
+                      "状态会丢失）")
+                return pt_tag, True
+            return pt_tag, False
+        print(f"[{ns}] ⚠ 无法读取透传/基础镜像 ID，沿用现有 {pt_tag}；如内容过旧"
+              f"可手动执行: {detect_runtime()} tag {base_tag} {pt_tag}")
+        return pt_tag, False
+    if pt_exists:
+        return pt_tag, False
+    if base_exists:
+        print(f"[{ns}] ℹ 透传镜像 {pt_tag} 缺失，从 {base_tag} 打 tag"
+              "（镜像内容相同，零额外构建）…")
+        run_cmd(c, f"{detect_runtime()} tag {base_tag} {pt_tag}", hide=True)
+        return pt_tag, False
+    if offline:
+        print(f"[{ns}] ⚠ 离线 --passthrough 需要镜像 {pt_tag}（或基础镜像 {base_tag}），本地均无：")
+        print(f"[{ns}]   联网机器导出: invoke {ns}.save")
+        print(f"[{ns}]   本机导入:     invoke {ns}.load --path <归档.tar.gz>")
+    else:
+        print(f"[{ns}] ⚠ --skip-build 且透传/基础镜像均不在本地，无法启动透传栈：")
+        print(f"[{ns}]   随带构建启动: invoke {ns}.up --passthrough")
+    raise Exit(1)
+
+
+def up_stack(
+    c: Context,
+    spec: StackSpec,
+    *,
+    gpu: bool = False,
+    skip_build: bool = False,
+    offline: bool = False,
+    passthrough: bool = False,
+    gui: bool = False,
+    usb: bool = False,
+) -> None:
+    """渲染并启动栈（默认随带构建；up 前过 up_preflight 三道自愈）。
+
+    GPU 解析**先于** up_preflight（C19 + C23）：预检的跨平面判据需要 gpu_form
+    才能推出本次下发的文件集，且 GPU 不可用应在任何 down 之前 fail-fast。
+
+    构建执行者唯一（C16）：镜像存在性由内核负责，compose 恒 ``up -d --no-build``。
+    默认路径内联 ``build_image`` 后即起容器（全程一次构建）；``--skip-build`` 与
+    离线路径不做任何构建，故先做本地镜像存在性预检（缺失 fail-fast + 中文指引），
+    不再让 compose 的 build 段兜底。
+
+    内联构建与显式 ``build`` 共用 ``resolve_build_args``（C15）：读 .env 的
+    ``PIP_MIRROR`` / ``CONDA_MIRROR`` / ``BASE_IMAGE``——与 compose 段插值键同键。
+
+    离线模式：强制跳过构建 + 本地镜像存在性预检 + compose ``up --no-build``。
+
+    起容器经 ``run_compose_up``（C17）：过滤 podman 原生回显噪声，失败时零过滤。
+
+    起容器后按**应用层应答**等待 Jupyter 就绪（C21）：``up -d`` 返回只代表容器在
+    跑，而宿主端口在容器起来的瞬间就被 rootlessport 转发并 accept，后端 listen
+    前的窗口期内连接被接受后立即关闭（浏览器报 ``ERR_EMPTY_RESPONSE``）；故就绪
+    判据不得用裸 TCP connect（假阳性），超时也只给指引、不判失败。
+    """
+    if offline:
+        skip_build = True
     env = dict(os.environ)
-    up_preflight(c, spec, env=env)
-    run_compose(c, spec, "up", "-d", gpu=gpu)
-    ssh = _env_port(spec, env, spec.ssh_port_env, spec.ssh_default)
-    jupyter = _env_port(spec, env, spec.jupyter_port_env, spec.jupyter_default)
+    # B-scheme 门禁最先于一切（build/down/任何资源变更）：三叠加栈的 Notebook/
+    # CLI 经宿主 rootless socket 复用宿主 daemon；socket 缺失时 entrypoint 的
+    # DinP 回退在嵌套 rootless 下不可用（newuidmap），缺源挂载还会让 compose
+    # 硬失败——故在此统一预检+免提权自愈，并把同路径令牌注入 compose 插值。
+    resolve_host_podman_socket(c, spec, env)
+    if not skip_build:
+        build_image(c, spec, tag=None, no_cache=False)
+    # passthrough 的镜像存在性由 ensure_passthrough_tag 统一处理（接受透传/基础
+    # tag 任一）；非透传保持原有单 tag 预检。
+    if skip_build and not passthrough:
+        _require_local_image(
+            c, spec, image_tag(spec, env), action="启动栈", offline=offline
+        )
+    # 形态一致性校验（C27）：非 --skip-build 路径刚由 build_image 按同一
+    # resolve_build_args 重建，形态必然一致（零噪音通过）；该分支真正拦截的是
+    # `build --torch X`（单次覆盖，C15）后 `up --skip-build` 的「声明 ≠ 实物」。
+    warn_torch_flavor_mismatch(c, spec, env)
+    # 门禁全部**先于 up_preflight / 任何 down**（顺序即语义，对齐 GPU C19/C23）：
+    # GPU → 透传主层（含镜像 tag 就位）→ GUI（Wayland/X11/X11-TCP 形态探测）
+    # → USB。任一不可用即 fail-fast，绝不先拆用户正在用的栈再报错。
+    gpu_token, gpu_form = ("", "generic")
+    if gpu:
+        gpu_token, gpu_form = resolve_gpu_device(c, spec, env)
+    dbus_path, sshd_port = ("", spec.ssh_default)
+    pt_tag = ""
+    pt_converged = False
+    if passthrough:
+        dbus_path, sshd_port = resolve_passthrough(c, spec, env)
+        pt_tag, pt_converged = ensure_passthrough_tag(
+            c, spec, env, offline=offline
+        )
+    gui_forms: tuple[str, ...] = ()
+    if gui:
+        # X11/TCP（ssh -X 转发）只监听宿主 loopback，仅 host 网络形态可达；
+        # bridge 下命中转发端口时 resolve_gui 不给形态、转 fail-fast 指引。
+        gui_forms = resolve_gui(c, spec, env, host_network=passthrough)
+    usb_token = ""
+    if usb:
+        usb_token = resolve_usb_device(c, spec, env)
+    up_preflight(
+        c, spec, env=env, gpu=gpu, gpu_form=gpu_form,
+        passthrough=passthrough, gui=gui, gui_forms=gui_forms, usb=usb,
+    )
+    # 陈旧收敛时把 --force-recreate 紧跟 up（V-2）：重打 tag 不触容器，
+    # 普通 up 不会让运行中的容器切换到新镜像 ID（2026-09-28 对照实证）。
+    up_tail = ["up"]
+    if pt_converged:
+        up_tail.append("--force-recreate")
+    up_tail += ["-d", "--no-build"]
+    run_compose_up(
+        c, spec, *up_tail, gpu=gpu, gpu_form=gpu_form,
+        passthrough=passthrough, gui=gui, gui_forms=gui_forms, usb=usb,
+    )
+    # host 形态：Jupyter 固定 8888、SSH 用 SSHD_PORT（无端口映射）；bridge 形态
+    # 继续按 .env 键解析。
+    ssh = sshd_port if passthrough else _env_port(
+        spec, env, spec.ssh_port_env, spec.ssh_default
+    )
+    jupyter = "8888" if passthrough else _env_port(
+        spec, env, spec.jupyter_port_env, spec.jupyter_default
+    )
+    # 就绪等待（C21）：`up -d` 返回只代表**容器**在跑，不代表**服务**可访问。
+    # rootlessport 在容器起来的瞬间就 accept 宿主端口，而容器内 jupyter 需数十秒
+    # （native 实测 66 秒）才 listen，窗口期内连接被接受后立即关闭且零字节返回，
+    # 浏览器报 ERR_EMPTY_RESPONSE——用户被「✅ 栈已启动」与「端口可连」双重误导。
+    # 故按**应用层应答**判定就绪（TCP connect 在本场景假阳性），超时不判失败。
+    ready, detail = wait_http_ready(
+        int(jupyter),
+        on_progress=lambda waited: print(
+            f"[{spec.namespace}] ⏳ 等待 Jupyter 就绪 … 已 {waited:.0f}s"
+            f"（首次启动约需 60–90s）"
+        ),
+    )
     print(f"[{spec.namespace}] ✅ 栈已启动：")
-    print(f"        SSH     localhost:{ssh}")
+    # SSH 行给**完整可复制命令**而非裸地址：宿主端口非 22（22 由宿主自身 sshd
+    # 占用，见 04-troubleshooting-guide.md C-I8），而 ssh 不支持 user@host:port
+    # 语法——只印 `localhost:2223` 时用户按习惯敲 `ssh devuser@localhost` 会落到
+    # 宿主 sshd（无 devuser 用户）必报 Permission denied，误判为「密码错/凭证
+    # 回读故障」。与 client_core 的访问信息横幅同口径（单一事实源）。
+    print(f"        SSH     ssh -p {ssh} devuser@localhost")
     jupyter_line = f"        Jupyter localhost:{jupyter}"
     if spec.jupyter_banner_note:
         jupyter_line = f"{jupyter_line}{spec.jupyter_banner_note}"
     print(jupyter_line)
+    # 凭证回读：.env 留空时密码/token 由容器内 entrypoint 生成、只进启动日志，
+    # 直接读 .env 只会拿到空串（本轮问题根因）——故从容器日志头部回读实际值。
+    cred_user, cred_password, cred_token = read_container_credentials(c, spec)
+    if cred_password:
+        print(
+            f"        密码    {cred_user} / {cred_password}"
+            f"（容器内自动生成，仅本机开发）"
+        )
+    direct_url = jupyter_direct_url(jupyter, cred_token or env.get("JUPYTER_TOKEN", ""))
+    if direct_url:
+        print(f"        直达    {direct_url}（免登录，token 勿外传）")
+    if ready:
+        print(f"[{spec.namespace}]        Jupyter 已就绪（{detail}）")
+    else:
+        print(f"[{spec.namespace}] ⚠ Jupyter 未在 {UP_READY_TIMEOUT_S:.0f}s 内应答（{detail}）")
+        print(f"[{spec.namespace}]   容器已在运行，服务可能仍在首次启动；稍后刷新浏览器即可")
+        print(f"[{spec.namespace}]   仍在等待则查日志: invoke {spec.namespace}.logs")
     if gpu and spec.gpu_override:
-        print("        GPU     /dev/dri 已透传（compose.gpu.yaml）")
+        print(f"        GPU     {gpu_token} 已透传（{gpu_override_file(spec, gpu_form).name}）")
+    if passthrough:
+        print(f"        透传    host 网络 + D-Bus（{dbus_path}；镜像 {pt_tag or '...'}）")
+    if gui and gui_forms:
+        parts = []
+        if "wayland" in gui_forms:
+            parts.append(f"Wayland {os.environ.get('GUI_WAYLAND_SOCKET', '')}")
+        if "x11" in gui_forms:
+            parts.append(f"X11 {os.environ.get('GUI_X11_SOCKETDIR', '')}")
+        if "x11-tcp" in gui_forms:
+            parts.append(
+                f"X11/TCP {os.environ.get('GUI_DISPLAY', '')}（xauth cookie 已注入）"
+            )
+        # X11/TCP 走宿主 loopback，只在 --passthrough（host 网络）下可达；
+        # Wayland/X11 unix 是 bind mount，bridge/host 两形态均可用。
+        scope = "；X11/TCP 仅 host 形态可达" if "x11-tcp" in gui_forms \
+            else "（bridge/host 形态均可用）"
+        print(f"        GUI     {' + '.join(parts)} 已透传{scope}")
+    if usb:
+        print(f"        USB     {usb_token} 已透传")
     if spec.up_footer:
         for line in spec.up_footer:
             print(line)
@@ -795,9 +2533,21 @@ def logs_stack(c: Context, spec: StackSpec, tail: int = 100) -> None:
 # ---------------------------------------------------------------------------
 
 
-def smoke_stack(c: Context, spec: StackSpec, *, gpu: bool = False) -> None:
+def smoke_stack(
+    c: Context,
+    spec: StackSpec,
+    *,
+    gpu: bool = False,
+    passthrough: bool = False,
+    gui: bool = False,
+    usb: bool = False,
+) -> None:
     """运行栈冒烟：栈在运行 → compose exec 执行 exec_scripts；未运行 →
-    podman run --rm 一次性容器执行 standalone_scripts。"""
+    podman run --rm 一次性容器执行 standalone_scripts。
+
+    栈运行路径的文件集必须与栈启动时同源（``gpu``/``passthrough``/``gui``/``usb``
+    决定 exec 寻址与设备/网络命名），故参数先过与 up 相同的门禁解析。
+    """
     if spec.smoke is None:
         raise RuntimeError(f"栈 {spec.namespace} 未声明 smoke 规格")
     ensure_runtime_ready(spec)
@@ -805,6 +2555,20 @@ def smoke_stack(c: Context, spec: StackSpec, *, gpu: bool = False) -> None:
     img_tag = image_tag(spec, env)
     runtime = detect_runtime()
     smoke = spec.smoke
+    # 与 up 同源解析：保证 compose 插值拿到的令牌与栈启动时一致，并决定 exec
+    # 用哪份覆盖文件。
+    gpu_form = "generic"
+    if gpu:
+        _, gpu_form = resolve_gpu_device(c, spec, env)
+    if passthrough:
+        # check_ports=False：运行中栈自身占用 host 端口属预期（非冲突）
+        resolve_passthrough(c, spec, env, check_ports=False)
+        ensure_passthrough_tag(c, spec, env, offline=False)
+    gui_forms: tuple[str, ...] = ()
+    if gui:
+        gui_forms = resolve_gui(c, spec, env, host_network=passthrough)
+    if usb:
+        resolve_usb_device(c, spec, env)
 
     if container_running(c, spec):
         print(f"[{spec.namespace}] {smoke.running_note}")
@@ -818,10 +2582,21 @@ def smoke_stack(c: Context, spec: StackSpec, *, gpu: bool = False) -> None:
                 smoke.python,
                 f"{smoke.smoke_dir}/{script}",
                 gpu=gpu,
+                gpu_form=gpu_form,
+                passthrough=passthrough,
+                gui=gui,
+                gui_forms=gui_forms,
+                usb=usb,
                 pty=False,
             )
     else:
         print(f"[{spec.namespace}] {smoke.standalone_note}")
+        if passthrough or gui or usb:
+            # standalone 为裸 podman run，不带透传覆盖；守卫脚本本身不依赖
+            # 这些设备（与 GPU standalone 同语义），但须显式声明参数被忽略，
+            # 防止把「透传已验证」误读为设备已生效。
+            print(f"[{spec.namespace}]   ℹ 栈未运行：--passthrough/--gui/--usb 仅在"
+                  "栈运行路径生效，本次只跑无设备依赖的独立守卫。")
         for script in smoke.standalone_scripts:
             # 注意：standalone 路径为迁移前逐字节等价的裸 `podman run --rm`
             # （不带 rootless 三必需，历史仅跑纯 CPU ONNX/守卫脚本）。未来若
@@ -850,22 +2625,37 @@ def smoke_stack(c: Context, spec: StackSpec, *, gpu: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_help(spec: StackSpec) -> dict:
+def build_help(spec: StackSpec) -> dict:
+    """``build`` 任务 help 文案（按 spec 能力并集生成）。
+
+    公开给栈模块复用：需自定义 ``build``（例如多一个 ``--wheel`` 参数）的栈
+    写法为 ``help={**build_help(spec), "wheel": "..."}``——复制一份即制造双
+    事实源（改一处忘另一处，`invoke <ns>.build --help` 与实际行为不符）。
+    """
     help_ = {
         "tag": f"产出镜像标签，默认 {spec.default_image_tag}（或 root .env {spec.image_tag_env}）",
-        "base-image": "基底镜像（Containerfile ARG BASE_IMAGE），默认 %s" % spec.default_base_image,
-        "pip-mirror": "构建期 pip 镜像源：official|aliyun|tuna（默认 official）",
+        "base-image": "基底镜像（Containerfile ARG BASE_IMAGE）；默认 .env BASE_IMAGE，缺省 %s"
+        % spec.default_base_image,
+        "pip-mirror": "构建期 pip 镜像源：official|aliyun|tuna；默认 .env PIP_MIRROR，缺省 official",
         "no-cache": "等价 podman build --no-cache（强制全量重建）",
     }
     if spec.conda_mirror:
         help_["conda-mirror"] = (
-            "构建期 conda 镜像源：official|aliyun|tuna（.env 经 up 的 compose 内联 build 生效）"
+            "构建期 conda 镜像源：official|aliyun|tuna；默认 .env CONDA_MIRROR，缺省 official"
+        )
+    if spec.torch_flavor:
+        help_["torch"] = (
+            "torch 形态：''（不装，默认）|cpu|cu130；默认 .env TORCH_FLAVOR。"
+            "cpu/cu130 经 download.pytorch.org/whl/<形态> 索引安装 torch 2.14.0"
         )
     return help_
 
 
 def make_stack_tasks(spec: StackSpec) -> dict:
-    """生成六任务骨架 {build,up,down,ps,logs,smoke}（invoke.Task 对象）。
+    """生成任务骨架 {build,up,down,ps,logs,smoke}（invoke.Task 对象）。
+
+    ``supports_offline=True`` 的栈额外生成 {save,load} 两个镜像归档任务，并给
+    ``up`` 追加 ``--offline``/``--no-offline`` 一对三态开关。
 
     长任务（build-tvm/wheel/build-native）不在本工厂：由各栈模块用内核
     helper（gates/ensure_runtime_ready/require_running/run_compose）单独构造。
@@ -873,78 +2663,239 @@ def make_stack_tasks(spec: StackSpec) -> dict:
     s = spec  # 闭包绑定
     deco = {"auto_shortflags": spec.auto_shortflags}
 
-    # —— build（conda_mirror 栈多一个 --conda-mirror 参数，签名须逐字保持） ——
-    if spec.conda_mirror:
+    # —— build（conda_mirror / torch_flavor 栈各追加一个参数，签名须逐字保持） ——
+    # 形参面 = 已启用构建能力的并集：能力开关只增不减形参，不互相"吃掉"。
+    def _build_impl(
+        c: Context,
+        *,
+        tag: str | None,
+        base_image: str | None,
+        pip_mirror: str | None,
+        conda_mirror: str | None,
+        torch: str | None,
+        no_cache: bool,
+    ) -> None:
+        gates(s)
+        ensure_runtime_ready(s)
+        build_image(
+            c,
+            s,
+            tag=tag,
+            base_image=base_image,
+            pip_mirror=pip_mirror,
+            conda_mirror=conda_mirror,
+            torch=torch,
+            no_cache=no_cache,
+        )
 
-        @task(help=_build_help(spec), **deco)
+    if spec.conda_mirror and spec.torch_flavor:
+
+        @task(help=build_help(spec), **deco)
         def build(
             c: Context,
             tag: str | None = None,
-            base_image: str = spec.default_base_image,
-            pip_mirror: str = "official",
-            conda_mirror: str = "official",
+            base_image: str | None = None,
+            pip_mirror: str | None = None,
+            conda_mirror: str | None = None,
+            torch: str | None = None,
             no_cache: bool = False,
         ) -> None:
-            gates(s)
-            ensure_runtime_ready(s)
-            build_image(
+            _build_impl(
                 c,
-                s,
                 tag=tag,
                 base_image=base_image,
                 pip_mirror=pip_mirror,
                 conda_mirror=conda_mirror,
+                torch=torch,
+                no_cache=no_cache,
+            )
+
+    elif spec.conda_mirror:
+
+        @task(help=build_help(spec), **deco)
+        def build(
+            c: Context,
+            tag: str | None = None,
+            base_image: str | None = None,
+            pip_mirror: str | None = None,
+            conda_mirror: str | None = None,
+            no_cache: bool = False,
+        ) -> None:
+            _build_impl(
+                c,
+                tag=tag,
+                base_image=base_image,
+                pip_mirror=pip_mirror,
+                conda_mirror=conda_mirror,
+                torch=None,
                 no_cache=no_cache,
             )
 
     else:
 
-        @task(help=_build_help(spec), **deco)
+        @task(help=build_help(spec), **deco)
         def build(
             c: Context,
             tag: str | None = None,
-            base_image: str = spec.default_base_image,
-            pip_mirror: str = "official",
+            base_image: str | None = None,
+            pip_mirror: str | None = None,
             no_cache: bool = False,
         ) -> None:
-            gates(s)
-            ensure_runtime_ready(s)
-            build_image(
+            _build_impl(
                 c,
-                s,
                 tag=tag,
                 base_image=base_image,
                 pip_mirror=pip_mirror,
+                conda_mirror=None,
+                torch=None,
                 no_cache=no_cache,
             )
 
     build.__doc__ = spec.docs.build
 
     # —— up ——
-    up_help = {"skip-build": "跳过启动前的镜像构建（默认每次 up 随带构建跟随层更新）"}
-    if spec.gpu_override:
+    up_help = {
+        "skip-build": "跳过启动前的镜像构建，直接用本地已有镜像（缺失即 fail-fast "
+        "并给出指引；compose 段不兜底构建，up 恒 --no-build）。默认随带构建，"
+        "内联构建读 .env PIP_MIRROR/CONDA_MIRROR/BASE_IMAGE，与 compose 段同键"
+    }
+    if spec.supports_offline:
         up_help = {
-            "gpu": "叠加 compose.gpu.yaml（透传 /dev/dri；默认隔离不透传 GPU）",
+            "offline": "离线模式：禁止构建（强制跳过）并只用本地已导入镜像",
+            "no-offline": f"显式关闭 .env 的 {spec.offline_env_key}（覆盖离线默认）",
+            **up_help,
+        }
+    if spec.gpu_override:
+        dev_hint = (
+            f"{spec.gpu_device_env or 'GPU_DEVICE'} 双形态（/ 开头=设备路径；否则=CDI 引用，"
+            "如 nvidia.com/gpu=all）"
+            if spec.gpu_device_env
+            else "/dev/dri"
+        )
+        up_help = {
+            "gpu": (
+                f"透传 GPU：{dev_hint}；未设置时自动探测"
+                "（NVIDIA CDI 优先：宿主已生成 CDI 规格且存在 /dev/nvidiactl "
+                "时选 nvidia.com/gpu=all；否则 "
+                + " → ".join(d for d, _ in GPU_DEVICE_FORMS)
+                + "，WSL2 额外叠加 compose.gpu.wsl.yaml 挂载 libcuda）；"
+                "默认隔离不透传 GPU"
+            ),
+            **up_help,
+        }
+    if spec.passthrough_overlay:
+        up_help = {
+            "passthrough": (
+                "透传主层：host 网络（Jupyter 固定 8888、SSH 用 HOST_NET_SSHD_PORT）"
+                " + D-Bus 会话总线；镜像切透传专用 tag（同内容，自动 podman tag）。"
+                "宿主缺 D-Bus socket 或端口被占即 fail-fast；默认隔离"
+            ),
+            **up_help,
+        }
+    if spec.usb_overlay:
+        up_help = {
+            "usb": (
+                "透传 USB 总线（compose.passthrough.usb.yaml）：默认 /dev/bus/usb，"
+                "可用 USB_DEVICE 指定单设备。WSL2 须先 usbipd-win attach，"
+                "设备缺失即 fail-fast；默认隔离"
+            ),
+            **up_help,
+        }
+    if spec.gui_overlay:
+        up_help = {
+            "gui": (
+                "透传 GUI 显示（compose.passthrough.gui[.x11[.tcp]].yaml）：内核在 "
+                "daemon 宿主探测 Wayland socket 与 X11 socket，命中几层挂几层"
+                "（WSLg 下两层恒共存）。Wayland/X11 unix 在 bridge 形态即可用"
+                "（无需 --passthrough）；物理 Linux 用 HOST_XDG_RUNTIME_DIR / "
+                "GUI_X11_SOCKETDIR 改指，X11 另需 xhost 放行。SSH 远程（ssh -X，"
+                "无本地桌面）的 X11/TCP 转发仅监听宿主 loopback，须叠加 "
+                "--passthrough，内核自动探测 127.0.0.1:60<n> 并注入 xauth cookie"
+                "（可用 GUI_X11_TCP_DISPLAY / GUI_XAUTHORITY_FILE 显式指定）；"
+                "均未命中即 fail-fast；默认隔离"
+            ),
             **up_help,
         }
 
-    if spec.gpu_override:
+    # —— up（形参面 = gpu_override ∪ supports_offline ∪ 透传各覆盖，能力正交） ——
+    # 历史写法是 gpu/offline/else 三路互斥，导致 native 一旦同时声明两个能力，
+    # --offline 会被 gpu 分支吃掉。改为"能力并集决定形参面"，公共实现下沉。
+    def _up_impl(
+        c: Context,
+        *,
+        gpu: bool,
+        skip_build: bool,
+        offline: bool,
+        no_offline: bool,
+        passthrough: bool = False,
+        gui: bool = False,
+        usb: bool = False,
+    ) -> None:
+        # 离线开关必须**先于 gates** 固化进 os.environ（WSL 桥接只透传环境
+        # 变量、不转发 CLI 参数，晚于桥接则旗标丢失）
+        is_offline = resolve_offline(s, offline, no_offline) if s.supports_offline else False
+        gates(s)
+        ensure_runtime_ready(s)
+        prepare_env(s)
+        up_stack(
+            c, s, gpu=gpu, skip_build=skip_build, offline=is_offline,
+            passthrough=passthrough, gui=gui, usb=usb,
+        )
+
+    if spec.gpu_override and spec.supports_offline:
+
+        if spec.passthrough_overlay or spec.usb_overlay or spec.gui_overlay:
+
+            @task(help=up_help, **deco)
+            def up(
+                c: Context,
+                gpu: bool = False,
+                passthrough: bool = False,
+                gui: bool = False,
+                usb: bool = False,
+                skip_build: bool = False,
+                offline: bool = False,
+                no_offline: bool = False,
+            ) -> None:
+                _up_impl(
+                    c, gpu=gpu, passthrough=passthrough, gui=gui, usb=usb,
+                    skip_build=skip_build, offline=offline, no_offline=no_offline,
+                )
+
+        else:
+
+            @task(help=up_help, **deco)
+            def up(
+                c: Context,
+                gpu: bool = False,
+                skip_build: bool = False,
+                offline: bool = False,
+                no_offline: bool = False,
+            ) -> None:
+                _up_impl(c, gpu=gpu, skip_build=skip_build, offline=offline, no_offline=no_offline)
+
+    elif spec.gpu_override:
 
         @task(help=up_help, **deco)
         def up(c: Context, gpu: bool = False, skip_build: bool = False) -> None:
-            gates(s)
-            ensure_runtime_ready(s)
-            prepare_env(s)
-            up_stack(c, s, gpu=gpu, skip_build=skip_build)
+            _up_impl(c, gpu=gpu, skip_build=skip_build, offline=False, no_offline=False)
+
+    elif spec.supports_offline:
+
+        @task(help=up_help, **deco)
+        def up(
+            c: Context,
+            skip_build: bool = False,
+            offline: bool = False,
+            no_offline: bool = False,
+        ) -> None:
+            _up_impl(c, gpu=False, skip_build=skip_build, offline=offline, no_offline=no_offline)
 
     else:
 
         @task(help=up_help, **deco)
         def up(c: Context, skip_build: bool = False) -> None:
-            gates(s)
-            ensure_runtime_ready(s)
-            prepare_env(s)
-            up_stack(c, s, skip_build=skip_build)
+            _up_impl(c, gpu=False, skip_build=skip_build, offline=False, no_offline=False)
 
     up.__doc__ = spec.docs.up
 
@@ -972,18 +2923,41 @@ def make_stack_tasks(spec: StackSpec) -> dict:
 
     logs.__doc__ = spec.docs.logs
 
-    # —— smoke ——
+    # —— smoke（形参面 = gpu_override ∪ 透传各覆盖，仅影响 exec 寻址） ——
     if spec.gpu_override:
 
-        @task(
-            help={
-                "gpu": "运行栈经 compose 启动时是否带 GPU 覆盖（仅影响 exec 寻址，不影响冒烟本身）"
-            },
-            **deco,
-        )
-        def smoke(c: Context, gpu: bool = False) -> None:
-            gates(s)
-            smoke_stack(c, s, gpu=gpu)
+        if spec.passthrough_overlay or spec.usb_overlay or spec.gui_overlay:
+
+            @task(
+                help={
+                    "gpu": "运行栈带 GPU 覆盖时置位（exec 寻址同源）",
+                    "passthrough": "运行栈带透传主层时置位（exec 寻址同源）",
+                    "gui": "运行栈带 GUI 覆盖时置位（exec 寻址同源）",
+                    "usb": "运行栈带 USB 覆盖时置位（exec 寻址同源）",
+                },
+                **deco,
+            )
+            def smoke(
+                c: Context,
+                gpu: bool = False,
+                passthrough: bool = False,
+                gui: bool = False,
+                usb: bool = False,
+            ) -> None:
+                gates(s)
+                smoke_stack(c, s, gpu=gpu, passthrough=passthrough, gui=gui, usb=usb)
+
+        else:
+
+            @task(
+                help={
+                    "gpu": "运行栈经 compose 启动时是否带 GPU 覆盖（仅影响 exec 寻址，不影响冒烟本身）"
+                },
+                **deco,
+            )
+            def smoke(c: Context, gpu: bool = False) -> None:
+                gates(s)
+                smoke_stack(c, s, gpu=gpu)
 
     else:
 
@@ -994,7 +2968,7 @@ def make_stack_tasks(spec: StackSpec) -> dict:
 
     smoke.__doc__ = spec.docs.smoke
 
-    return {
+    tasks = {
         "build": build,
         "up": up,
         "down": down,
@@ -1002,3 +2976,111 @@ def make_stack_tasks(spec: StackSpec) -> dict:
         "logs": logs,
         "smoke": smoke,
     }
+
+    # —— save / load（仅 supports_offline 栈：离线镜像归档出口/入口） ——
+    if spec.supports_offline:
+        cache_help = (
+            "归档缓存目录，默认 .env 的 IMAGE_CACHE_DIR / 当前执行目录下的 .image-cache"
+        )
+
+        @task(
+            help={
+                "tag": f"要导出的镜像 tag，默认 {spec.default_image_tag}（或 root .env {spec.image_tag_env}）",
+                "cache-dir": cache_help,
+            },
+            **deco,
+        )
+        def save(c: Context, tag: str | None = None, cache_dir: str | None = None) -> None:
+            """导出本栈镜像为离线归档（tar.gz + manifest/SHA256，供无网机器 load）。"""
+            gates(s)
+            ensure_runtime_ready(s)
+            env = _load_env_overrides(_project_root())
+            target = tag or image_tag(s, env)
+            cache_path = Path(cache_dir) if cache_dir else default_build_cache_dir()
+            print(f"[{s.namespace}] 导出镜像归档: {target}")
+            ok = save_image(
+                c,
+                target,
+                cache_path,
+                not_found_hint=f"先构建: invoke {s.namespace}.build",
+                restore_hint=(
+                    f"invoke {s.namespace}.load --path <归档.tar.gz>   或   "
+                    f"invoke {s.namespace}.up --offline"
+                ),
+            )
+            if not ok:
+                raise Exit(1, "镜像归档导出失败")
+
+        def _expected_flavor() -> str:
+            """期望的 torch 形态（与 build 同一解析序：shell export > .env）。
+
+            仅 ``torch_flavor`` 栈有意义；其余栈恒空串，load 保持历史「取最新」语义。
+            """
+            if not s.torch_flavor:
+                return ""
+            env = _load_env_overrides(_project_root())
+            return str(
+                os.environ.get("TORCH_FLAVOR") or env.get("TORCH_FLAVOR") or ""
+            ).strip()
+
+        @task(
+            help={
+                "path": "归档 tar.gz 路径；未指定则按 .env TORCH_FLAVOR 形态选取最新归档",
+                "cache-dir": cache_help,
+            },
+            **deco,
+        )
+        def load(c: Context, path: str | None = None, cache_dir: str | None = None) -> None:
+            """从离线归档导入本栈镜像（manifest 完整性校验，缺网可用）。
+
+            C20：归档名携带 torch 形态（``-torch-<形态>-``），load 据此选档与校验——
+            cpu 与 cu130 两份镜像 tag 相同（``localhost/native-dev:latest``），不带形态
+            过滤的「取最新」会在同族共存时静默导入错形态，直到容器内 torch.cuda 为空
+            才暴露。
+            """
+            gates(s)
+            ensure_runtime_ready(s)
+            _load_env_overrides(_project_root())
+            cache_path = Path(cache_dir) if cache_dir else default_build_cache_dir()
+            expected = _expected_flavor()
+            if path:
+                tar_path = Path(path).resolve()
+            else:
+                # 期望形态已知时按形态过滤选档；期望为空（不装 torch）时宁可不过滤，
+                # 但下方仍打印归档形态供人工核对（可辨识 > 静默）。
+                tar_path = find_latest_image_tar(cache_path, expected or None)
+                if tar_path is None:
+                    print(f"[{s.namespace}] ⚠ 缓存目录中未找到归档: {cache_path}")
+                    if expected:
+                        print(f"[{s.namespace}]   当前 TORCH_FLAVOR={expected}，未找到该形态归档")
+                    print(f"[{s.namespace}]   请在联网机器执行: invoke {s.namespace}.save")
+                    raise Exit(1)
+                print(f"[{s.namespace}] 自动选择最新归档: {tar_path}")
+            got = archive_flavor(tar_path.name)
+            if expected and got and got != expected:
+                print(f"[{s.namespace}]  归档 torch 形态: {got} ≠ 期望: {expected}")
+                raise Exit(
+                    f"归档形态与 TORCH_FLAVOR 不符；改 .env TORCH_FLAVOR={got} 后 load，"
+                    f"或换用 {expected} 形态归档（--path 显式指定）。"
+                )
+            if s.torch_flavor:
+                if got:
+                    print(f"[{s.namespace}] 归档 torch 形态: {got}")
+                elif expected:
+                    print(
+                        f"[{s.namespace}] ⚠ 归档未标注 torch 形态（旧产物）；"
+                        f"期望 {expected}，不做拦截"
+                    )
+            integrity_err = validate_manifest_integrity(cache_path, tar_path)
+            if integrity_err:
+                print(f"[{s.namespace}]  {integrity_err}")
+                raise Exit(1, "归档校验失败，请重新 save 后再 load。")
+            result = load_image(c, tar_path)
+            if not result.loaded:
+                raise Exit(1, result.message)
+            print(f"[{s.namespace}] ✅ 镜像已导入；无网机器可直接: invoke {s.namespace}.up --offline")
+
+        tasks["save"] = save
+        tasks["load"] = load
+
+    return tasks

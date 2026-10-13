@@ -1,0 +1,832 @@
+# native.* 开发/打包叠加栈规则（podman-compose 编排层）
+
+> 单一职责：本文件只约束 `invoke native.*` 命名空间与
+> `overlays/native-dev/` 叠加栈。根命名空间（SDK→CLI 两层）规则见
+> [invoke-tasks.md](invoke-tasks.md) 与 [sdk-connection.md](sdk-connection.md)；
+> 同族 quant 栈规则见 [quant-overlay.md](quant-overlay.md)，本文件不重述其
+> 通用条款，只定义 native 栈特有契约。
+
+## 1. 架构边界（四层不可混）
+
+| 层 | 载体 | 职责 |
+|---|---|---|
+| 根/`container.*` | podman-py SDK → CLI fallback | 单容器命令式生命周期（零回归对象） |
+| `env.*` | podman CLI 子进程 | client SDK 自举叠加镜像 |
+| `quant.*` | podman-compose 子进程 | ONNX 量化工作负载栈 |
+| **`native.*`（本文件）** | **podman-compose 子进程（禁止 import podman）** | **npu_tvm/xmnn 源码调试 + Nuitka wheel 打包栈（overlays/native-dev）** |
+
+- native.py 内**禁止** `import podman` / `from podman`；禁止把本层提升为
+  `invoke run` 的后端或向根路径回流（同 C11 裁决）。
+- native.py 现为 **StackSpec 声明 + 长任务薄封装**：唯一事实源 `NATIVE_SPEC`，
+  六任务（build/up/down/ps/logs/smoke）由
+  `overlay_core.make_stack_tasks(NATIVE_SPEC)` 工厂生成（`supports_offline=True`
+  时工厂额外生成 `save` / `load` 两个离线条目）；`build-tvm` /
+  `wheel` 两个栈内 exec 长任务保留在 native.py，调内核 helper（gates /
+  ensure_runtime_ready / require_running / run_compose）。同构编排函数
+  （门禁/prepare_env/compose_argv/残留自愈等）唯一定义在 overlay_core。
+  红线：overlay_core 与 jpman_common 零栈知识（不得 import 具体栈模块、
+  不出现栈名/路径），栈模块零 podman。
+- 10 个任务：`build / up / down / ps / logs / smoke / build-tvm / wheel /
+  save / load`。`build-tvm` 与 `wheel` 是对运行中容器的
+  `podman-compose exec` 长任务；`save` / `load` 是镜像归档出口/入口
+  （离线通道，契约见 §10）。
+
+## 2. 平台门禁 / WSL 桥接（硬约束）
+
+与 quant 栈完全同族：
+1. Windows 原生 CPython 一律先过 `overlay_core.gate_platform(NATIVE_SPEC)`
+   ——**自动桥接优先**（2026-09-15 起）：经
+   `utils.run_in_wsl_bridge(extra_env_keys=NATIVE_SPEC.bridge_env_keys)`
+   把本任务原样转发到 WSL 发行版（默认 `podman-machine-default`（client
+   专用 rootless 发行版，与 flapping 的默认 machine 相互独立、镜像存储
+   不互通；`COMPOSE_WSL_DISTRO` 可覆盖，`none` 显式关闭））内执行，
+   实时透传，返回码原样上抛；桥接成功即 `Exit(0)` 收尾，不再走
+   Windows 侧后续逻辑。栈专属透传键（5 个 NATIVE_* 键 + NPU_TVM_PATH /
+   NPUUSERTOOLS_PATH / MODELS_PATH）由 `NATIVE_SPEC.bridge_env_keys`
+   声明，utils 只内置 `_BRIDGE_COMMON_ENV_KEYS` 通用键集；
+2. 桥接不可用（无 wsl.exe / 发行版缺失 / none 哨兵）才回退门禁
+   `Exit(1)`（动态推导的 /mnt 路径 + 发行版检查 + WSL2 发行版 /
+   `invoke env.run-cmd` 双路径中文指引）；
+3. POSIX 缺 podman-compose 二进制
+   `overlay_core.gate_compose_binary(NATIVE_SPEC)` Exit(1)，
+   提示 `pip install -e ".[compose]"`（复用既有 optional extra，不新增依赖）；
+4. 顺序固定：先平台后二进制；build/up/smoke/build-tvm/wheel 另过 daemon 预检
+   （`overlay_core.ensure_runtime_ready`）。
+   WSL 桥接目标**禁止复用 `WSL_DISTRO_NAME`**（SDK 连接专用，默认
+   podman-machine-default flapping 且镜像存储不互通）。
+
+## 3. 双 ABI 工具链契约（不可互换）
+
+| 角色 | env | Python | 内容 |
+|---|---|---|---|
+| Jupyter 服务 | `/opt/conda/envs/main` | 3.14.x **cp314t**（GIL off） | 基底 jupyterlab（supervisord，devuser） |
+| 编译/打包/内核 | `/opt/conda`（base） | 3.14.x **cp314 GIL enabled** | nuitka==4.2.2、scikit-build-core、build、invoke、ipykernel、wheel 19 依赖 |
+| 原生工具链 | main env | — | llvmdev/clangdev/clang/lld **22.1.8**、cmake、ninja、make、ccache、libgcc、libstdcxx-ng |
+| **编译前端（npu_tvm）** | 系统层（apt） | — | **gcc/g++**（系统包；2026-09-15 起作默认 CC/CXX） |
+
+- **编译前端裁决（2026-09-15）**：npu_tvm 构建默认用系统 `gcc/g++`
+  （build-tvm.sh `CC=${CC:-gcc}`/`CXX=${CXX:-g++}`，env 可覆盖回退 clang）。
+  原因：VTA FSIM 仿真驱动（`vta/vta_hw/src/sim_*`）的「VLA+初始化器」是
+  Clang 22 hard error（`variable-sized object may not be initialized`）、
+  GCC 允许的扩展。LLVM/Clang 22 工具链**仍必须安装**（llvm-config 供 CMake
+  `USE_LLVM`、lld 供链接、构建期守卫断言 SONAME）；只把编译前端切 gcc，
+  不改变工具链契约。Nuitka 4.x 打包后端同样默认找 gcc（更标准）。
+
+- **Nuitka 4.1.3 在 cp314t 编译失败、cp314 GIL 成功**（allocator.h:606
+  Spike 结论）：所有打包/验证脚本的解释器固定 `/opt/conda/bin/python`；
+  工具链 bin 用绝对路径（CC/CXX/LLVM_CONFIG 指向 main env），跨 env
+  PATH/LD_LIBRARY_PATH 导出只在脚本进程内生效，不反转全局 PATH。
+- conda 装工具链必须 pin `python=*=*cp314t`，构建期
+  `_toolchain_guards.py` 对双 ABI 做双向断言（main 被求解互换即构建失败）。
+- 系统层仅 apt 装 patchelf（CMake RPATH 阶段）、gdb（调试诉求）、gcc/g++（npu_tvm 编译前端，见上）。
+
+## 4. 源码仅运行时挂载（构建期零接触）
+
+- 六个 bind（一律长语法 + `bind.create_host_path: true`）：
+  `NATIVE_WORKSPACE→/workspace`、`NPU_TVM_PATH→/workspace/npu_tvm`、
+  `NPUUSERTOOLS_PATH→/workspace/npuusertools`、`MODELS_PATH→/workspace/models`、
+  `NATIVE_PROJECTS_PATH→/workspace/projects`、`NATIVE_TEMP_PATH→/workspace/temp`。
+- invoke 路径把六个宿主路径解析为**绝对 POSIX 路径**注入（Dimension A
+  复用 `to_posix_path`），相对路径相对 invoke cwd；四个源码路径做
+  **存在性硬校验**（缺失 Exit 1 + 中文指引），workspace 与 temp 走幂等
+  mkdir（`SourceMount.must_exist=False`，缺失属正常首态）。
+- **临时目录 bind 的三条特例**（2026-09-22）：① 缺省锚仓库根**上溯四级**
+  （`../../../../.temp`，即根 AGENTS.md 定义的统一临时目录），是**仓库之外**
+  的路径——换检出位置布局不同时必须在 `.env` 显式设绝对路径，否则会在锚点
+  外建同名目录；**2026-09-23 起该契约由内核 `overlay_core._resolve_path`
+  收口**：解析结果落在文件系统根直接子级（`/.temp`、`D:\.temp`）即判定
+  上溯越界，Exit(1) + 中文指引点名待设变量（不再裸抛 `PermissionError`），
+  `create` 分支的 `OSError` 同样转为可操作报错；测试锁见
+  `tests/test_overlay_core.py` 守卫三例（越界 fail-fast / 合法相对路径不误伤 /
+  权限拒绝转 Exit）；② 与五个同族 bind 的差异仅在「不列入存在性硬校验」，其余
+  （长语法 + `create_host_path: true` + 绝对 POSIX 注入）逐条同构；
+  ③ 该 bind **覆盖 `/workspace` 下的同名子目录**：容器内 `/workspace/temp`
+  不再是宿主 `client/workspace/temp`（宿主文件不受影响，仅容器内不可见），
+  这是刻意语义（临时产物落仓库外 scratch 盘位），不是缺陷。
+- **已知副产物（2026-09-14 裸 podman-compose 1.6.0 实测）**：裸
+  `podman-compose up`（不经 invoke 绝对路径注入）时，长语法 bind 的相对
+  source + `create_host_path: true` 会在 `client/workspace/` 下预创建
+  `npu_tvm/npuusertools/models` 三个**空目录**（不影响真实挂载——容器内
+  绑定的仍是 external/chaos 真源码，由 smoke_mounts 路径前缀断言保证）；
+  down 后可安全 `rmdir`（均为空）。invoke 路径注入绝对路径不产生该副产物；
+  `NATIVE_PROJECTS_PATH` 缺省解析为仓库根 `projects/`（通常已存在，不产生
+  此副产物）。
+- 镜像构建上下文 = overlay 目录自身；Containerfile 不得 COPY/引用宿主
+  源码树，不得出现 BuildKit `--mount=type=bind`、`chaos/ai`、`CHAOS_ROOT`。
+- TVM 构建产物默认就在挂载源码树 `npu_tvm/build/`（复用宿主既有
+  libtvm.so，调试直观）；9p 全量编译慢时把 NPU_TVM_PATH 指向 WSL 原生
+  克隆（README 必须给出该性能提示）。
+- **9p 无主旧产物清理契约（2026-09-15 实证，排障 W-I7）**：跨环境（WSL
+  发行版/其他容器/本栈）混用同一宿主 build/ 时，旧产物在 9p 视角属主为
+  `65534:65534`、目录 755；当前容器 root 无 DAC 绕过且 chmod EPERM、
+  devuser(1000) 同样不可写 → `inv config -f` 的 `_clear_directory_contents`
+  必在 rmtree 阶段 EACCES。**容器内无解，必须宿主侧清理**
+  （`Remove-Item -Recurse -Force <宿主 NPU_TVM_PATH>\build`，NTFS ACL 允许、
+  9p 即时同步）。已在 npu_tvm `tasks.py` 加 onexc（只读位 chmod 重试 +
+  9p 场景中文指引）；该文件属 external/chaos/npu_tvm 自有 git 仓（origin
+  本地 pu_tvm.git），不入 SpecWeave 提交。脚本头注禁止再写「容器内
+  rm -rf build 可强制全量」——9p 无主文件场景该命令会失败。
+- **checkpoint 可写性契约**：Jupyter 以 devuser(1000) 运行，而
+  rootless+9p/drvfs 下容器内 root 预建的
+  `$NATIVE_WORKSPACE/.ipynb_checkpoints`
+  在容器视角为 0:0 755，devuser 保存 notebook 必报 Errno 13。invoke 侧
+  `overlay_core.prepare_env(NATIVE_SPEC)` 在 mkdir 工作区后**必须**调用
+  `utils.ensure_workspace_checkpoint_writable()`（quant 栈同族接线；
+  幂等 0777、只改权限位不改属主、只作用该单一目录不递归、不触碰三个源码
+  bind）；禁止把该职责退回镜像/entrypoint 层（薄叠加不覆盖基底）。
+- **bind 源码树 other 位门禁契约（2026-10-12 实证，排障 C-I12）**：rootless 固定 UID 映射下（容器 devuser=1000 → 宿主 subuid 494215），宿主侧 umask 077 落盘的源码树（0700、属主=宿主运行账户）经 bind 进容器呈 `0:0 0700`，devuser 既非属主也非属组、**只能凭 other 位**——Jupyter 改源码与 `pip install -e .` 直接 Errno 13（实证：xuanspace/pyproject.toml）。`overlay_core.prepare_env()` 在挂载前对每个 `SourceMount` 源树调 `utils.ensure_bind_tree_accessible()` 幂等放宽：可写树 `a+rwX`（目录补 777、文件补 666/777）、只读树 `a+rX`；**模式位只加不减**（不得降级既有 777，对非属主 inode 降级会立即 EPERM 并污染整树）、**永不 chown**、跳过符号链接、非 POSIX/路径缺失即跳过；失败 warn-only 不阻断启动，非当前属主子树 chmod 累计 20 次早退并打印属主账户/sudo 手工命令（实测本地 xfs 即时透传，与 W-I19的 9p/drvfs 空操作禁忌不冲突——那条禁令只针对 9p/drvfs metadata 挂载，本机本地盘不适用）。`SourceMount.writable` 字段决定策略（MODELS_PATH 纯数据树=False）。冒烟红线：**容器 root 视角的可达性检查会掩盖本类故障**（root DAC 绕过能读 0700），`smoke_mounts.py` 1b 段必须 fork+setuid(1000) 下沉到 devuser 视角，且 projects 逐子项目探测入口文件（全树取首个会假阴性）。
+
+- **工作区 9p 无主文件契约（2026-09-20 实证，排障 W-I19）**：宿主工作区若被
+  **另一 UID 映射上下文**写过（subuid 基线 ≠ 本机 524288 的运行时，如 Docker /
+  其他 WSL podman 实例），旧文件在宿主侧落成 **100999** 之类**未映射 UID**，
+  容器内呈现 `65534:65534`（nobody）——当前容器 root 对其读写皆 EPERM、
+  `chown` 报 `Operation not permitted`，Jupyter 保存 notebook 即
+  `Permission denied` 且工具栏显示 `notebook is read-only`（**新建**文件不受
+  影响：工作区根 0777，新文件取挂载默认属主 1000:1000）。**容器内无解，必须
+  宿主侧换 inode**：`cp` 备份 → `rm` 原文件（父目录 0777，删除只看目录写位）
+  → `cp` 回原路径；`.Trash-<uid>` 等旧垃圾目录直接 `rm -rf`。**红线：`chmod`/
+  `chown` 在 9p/drvfs 无 `metadata` 挂载项下是空操作**（rc=0 但属性不变，本机
+  实测），禁止把「宿主侧 chmod/chown 修权限」写进任何排障指引或自愈代码；
+  判别唯一入口是容器内 `ls -lan /workspace` 出现 `65534`。**纪律**：同一宿主
+  工作区固定单一运行时，勿在 Docker / 其他 WSL podman 实例 / 本栈之间交替写入。
+- **up 三道 preflight 自愈契约（2026-09-15 实证，三栈共用
+  `overlay_core.up_preflight`，顺序不可调换）**：
+  ① **残留容器**——`podman ps -a -q --filter label=<project> --filter
+  status=created --filter status=exited`（多 status 为 OR 语义）探测本项目
+  非 running 容器，命中即先 `compose down`（**不**加 --volumes，保留
+  ccache 卷/镜像/workspace/源码 bind）；
+  ② **跨控制平面分歧**——读活体容器标签
+  `com.docker.compose.project.config_files` 原文，与本平面将下发的
+  `--file` 原文比较（**含 GPU 覆盖文件**：期望集与 `compose_argv` 同源，
+  见 §11.1.1 C23）：Windows 裸 compose 写 `D:\...`、WSL 桥接 invoke 写
+  `/mnt/d/...`，compose config-hash 按原文计算（**禁止路径等价归一**），
+  不一致即判为他平面创建的栈，先优雅 `compose down` 再 up，避免
+  podman-compose 强制 recreate 时强拆 pod infra 留下孤儿 rootlessport；
+  ③ **孤儿 rootlessport 回收**——无活体项目容器时用 `ss -ltnp` 检查本栈
+  端口，只对进程名为 rootlessport 的持有者定点 TERM/KILL（他栈 pasta/
+  conmon 一律不动；ss 缺失则跳过不阻断）。
+  根因链：跨平面交替操作（或异常中断）致 podman-compose 1.6 pod 模式
+  强拆 infra conmon，rootlessport 在 WSL 被 `/init` 收养成为孤儿继续监听，
+  新 pod bind 2223/8890 报 `address already in use`（exit 125，优雅 down
+  同样可能触发，故②后必须接③）；裸 compose 翻车现场直接重跑
+  `invoke native.up --skip-build` 即可恢复。**纪律：同一栈固定单一控制平面**
+  （长期裸 Windows compose 就不切 invoke，反之亦然）。quant/monetize
+  同族接线；排障条目 W-I10。
+
+## 5. 打包内核契约（/opt/native-builder 自包含）
+
+- 资产：pyproject.toml（wheel 元数据单一事实源，19 依赖）、CMakeLists.txt、
+  _xmnn_bootstrap.py、xmnn_bootstrap.pth、scripts/{build-wheel.sh,
+  build-tvm.sh,verify-wheel.sh,install-build-deps.py,lib/logging.sh}。
+  **禁止**从 external/chaos/ai 跨目录 COPY 或 source（lib 必须 vendor）。
+- **源码树只读纪律（2026-09-21 起，取代原「AST 注入/还原」纪律）**：
+  build-wheel.sh **不再改写任何包的 `__init__.py`**。Python 3.12+ 移除的
+  ast 遗留节点（NameConstant/Num/Str/Bytes/Index/ExtSlice）改由**运行期
+  补丁**兜底：`_xmnn_bootstrap.py` 经 `xmnn_bootstrap.pth` 在解释器启动时
+  执行（早于任何 tvm import，覆盖 wheel 安装态），`xmnn/vta_compat.
+  apply_ast_compat()` 幂等覆盖源码树/显式调用路径。由此取消
+  `lib/ast_inject.sh`、`.bak_<tag>` 备份、`_restore_all` EXIT trap 与四态
+  自愈矩阵——不存在「注入态」这一非法中间态，SIGKILL/OOM 不再污染外部
+  工作树（旧机制下「marker 在 + 备份丢失」是不可判定的停机分支）。
+  历史禁令仍在 CMake 组装侧生效：autolibs 用 `cp -R` 不用 `cp -a`
+  ——rootless userns 只映射启动用户单个宿主 UID，外部同步树文件的 POSIX
+  ACL 含未映射 UID（如多机 pc=1000/ai=1006）时 cp 复制 ACL 的内核
+  setxattr 返回 EINVAL（与目标 FS 无关，容器 overlayfs 同样失败）；wheel
+  也不应携带 ACL/属主。外部源码工作树零修改是硬验收（AC-9：内容、属主、
+  模式、ACL 四不变）——现由「不写」而非「写完再还原」保证。
+- Nuitka 语义不可裁剪：tvm 串行先行 → vta/xmnn 后台并行；三次调用差异
+  （交叉 nofollow、dill-compat、vta include-data-dir、jobs、`--mode=module`、
+  --quiet、--no-pyi-file）保持；退出码经 `.vta_exit/.xmnn_exit` 回传。
+- **模式旗标必须写 `--mode=module`**：4.x 里遗留别名 `--module` 只置
+  `module_mode`，而「module 模式专属选项」告警的判据是 `compilation_mode`
+  （仅 `--mode=` 赋值），故 `--module` 配 `--no-pyi-file` 会误报
+  `has no effect`；改旗标是唯一正解（删 `--no-pyi-file` 会重新产出 .pyi）。
+- **SONAME 漂移防护**：CMake 对 7 个 LLVM 依赖库（libLLVM.so.22*、
+  libz/libzstd/libxml2/libiconv/libicuuc/libicudata）按 glob 收集，并按
+  「NEEDED 只认 SONAME 短名」单副本安装（软链去引用 `cp -L` 为短名常规
+  文件——wheel ZIP 经 scikit-build 打包会解引用软链；被指向的长名真实文件
+  跳过；无链真实文件原名装），glob 空或 cp 返回码非 0 均 FATAL_ERROR；
+  CMake 4.x 只用复数 `REMOVE_DUPLICATES`（3.x 接受的单数拼写在 4.4 FATAL）。
+  构建期守卫对 llvm-config --libdir 做同款 glob 硬检查并打印实际 SONAME。
+  patchelf 缺失/数据目录缺失同为 FATAL（不允许 WARNING 静默出残 wheel）。
+- wheel 产物落 `$DIST_DIR`（默认 /workspace/dist，宿主可见）；Nuitka
+  中间产物在容器内 /opt/native-builder/build；ccache 走命名卷
+  `native-ccache`（挂 /root/.ccache，down 默认保留，--volumes 删除）。
+- **Jupyter 登录态命名卷（2026-09-20 起，C22）**：第二个命名卷
+  `native-jupyter` 挂 `/home/devuser/.local/share/jupyter`，持久化
+  `jupyter_cookie_secret`/`notebook_secret`——否则密钥随容器临时层轮换，
+  `down/up` 重建后浏览器旧标签页的 Terminal/notebook REST 全被踢回登录
+  （请求在浏览器侧中止，服务端零日志，极易误判为 PTY/权限故障，详见
+  docs/04 C-I6）。该目录镜像内属主 1000:1000/mode 700，新命名卷首次
+  copy-up 属主与可写性必须保持（真机实测）；down 默认保留，--volumes
+  与 ccache 一并删除，删除后重新登录属预期。禁止用 bind 指宿主家目录。
+- **用户态 Python 安装命名卷（2026-10-13 起，排障 C-I13）**：第四个命名卷
+  `native-userlocal` 挂 `/home/devuser/.local`，持久化 `pip --user` 与
+  `pip install -e` 的全部落点——双 ABI user-site（base GIL 的
+  `lib/python3.14` 与 main cp314t 的 `lib/python3.14t`；xc/xuanspace 与
+  xs/pytest 分居两者，漏挂任一卷位置都会丢一半）与 `bin/` 控制台脚本。
+  不持久化时 `down/up` 重建后须逐项目重装 pip 包。硬约束：① compose 卷
+  列表中必须排在 `native-jupyter` **之前**（父挂载先于嵌套子挂载，顺序错
+  会反向遮蔽登录态卷），smoke 1d 段父子双挂载关系均断言；② 镜像内
+  `~/.local` 仅含 devuser 属主空 `share/jupyter`，新卷 copy-up 属主可写，
+  entrypoint `chown -R devuser ~/.local` 另作兜底；③ 存量容器首次挂卷前
+  须把可写层 `~/.local` 数据 tar 迁入新卷（排除 `share/jupyter`——它由
+  嵌套卷独占，迁了是永不可见的死副本）；④ down 默认保留，--volumes
+  删除后重装 pip 包属预期；禁止用 bind 指宿主家目录（污染宿主树/跨栈串味）。
+- **SSH host key 命名卷（2026-09-20 起）**：第三个命名卷
+  `native-ssh-host-keys` 挂 `/var/lib/jpman/ssh-host-keys`。基底 entrypoint
+  以 `mountpoint -q` 为唯一分流判据——挂载即持久模式（key 落卷内、
+  `sshd_config` 的 `HostKey` 指向卷路径、清空 `/etc/ssh` 默认位置），
+  未挂载则回退容器层生成并打 WARN（重建即轮换，客户端遭
+  `REMOTE HOST IDENTIFICATION HAS CHANGED`）。**落点必须与客户交付栈
+  [offline-delivery](../../../offline-delivery/README.md) 的交付包
+  `products/xmnn-runtime/release/compose.yaml`
+  相同**（同 `/var/lib/jpman/ssh-host-keys`）；卷名随栈前缀（本栈
+  `native-ssh-host-keys`，交付栈为 `xmnn-ssh-host-keys`——卷本就按栈隔离），
+  属主/权限（700 目录 + 600 key）由 entrypoint 自管；down 默认保留，
+  `--volumes` 与上述两卷一并删除（删后指纹轮换属预期）。
+- **wheel 元数据（pyproject.toml 单一事实源，2026-09-16 起）**：
+  `[project.scripts] xmflow = xmnn.cli.xmflow:app` 随 whl 生成 console
+  script `/opt/conda/bin/xmflow`——Nuitka 包不支持 `python -m`
+  （runpy get_code），console script 是交付镜像内 CLI 的唯一入口；
+  `typer>=0.12` 必须在 dependencies（CLI 运行时依赖，不能只放 dev
+  extra）。改 pyproject 后须重打 whl；运行中旧栈容器的
+  /opt/native-builder 是镜像 COPY 副本（非挂载），需 `podman cp` 进容器
+  或重建镜像，打包才读得到新文件。
+- verify-wheel.sh 在 `--system-site-packages` 临时 venv 内装 wheel 跑
+  10 项检查，结束删除 venv——base env 的源码调试链路零污染。
+
+## 6. compose ↔ rootless 三必需 / bridge / 环境注入
+
+- 三必需（`devices: [/dev/fuse:/dev/fuse]`、`security_opt: [label=disable]`、
+  `cgroupns: host`，1.6.0 空操作须注释声明）、凭证四变量与
+  `network_mode: bridge` 已**上移 `../_shared/base-rootless.yaml`**
+  （extends 单一事实源），native 栈 compose.yaml 以
+  `extends: {file: ../_shared/base-rootless.yaml, service: rootless-base}`
+  继承，**禁止在栈文件重复声明**；严禁 privileged、docker.sock、host 网络。
+- `network_mode: bridge` 是**带证据的偏差**：2026-09-14 同机实证 machine
+  无 systemd user bus 时默认项目网络 aardvark-dns 必失败；实证注释保留在
+  基文件与 native compose.yaml 文件头，不得擅自删改。
+- 栈文件只保留栈专属字段：image/build/ports/六个 bind volumes、调试
+  environment、`labels.component`；`native-ccache`/`native-userlocal`/
+  `native-jupyter`/`native-ssh-host-keys` 四个命名卷等栈专属卷保持栈内声明（基文件无
+  volumes/build/env_file/ports）。extends
+  合并语义（rec_merge / L2844-L2849 路径解析）见 [quant-overlay.md](quant-overlay.md) §4.1。
+- up 成功横幅**回读容器内实际凭证并打印**（C24，2026-09-20）：`.env` 凭证键
+  留空为常态，密码/token 此时由容器内 entrypoint 用 `pwgen` 生成、**只进容器
+  启动日志**，故 `up` 收尾从容器日志**头部**回读（`podman logs <cid> | head
+  -n 300`，勿用 `--tail`——横幅在启动日志头部，`invoke <ns>.logs` 默认
+  `--tail=100` 只看尾部，手动查日志时会被挤出窗口）解析出密码行与 token，打印
+  `密码    <user> / <password>` 并用回读 token 构造「直达」行。**`.env` 全程
+  只读、不回写**（凭证生成责任留在基底 entrypoint，overlay 内核不得写 .env）。
+  内核通用实现 `overlay_core.read_container_credentials` /
+  `parse_container_credentials`（三栈同构，解析纯函数可单测）；密码必须用
+  `SSH login:` 行取到的用户名反查对应 password 行——只按 `password:` 匹配会先
+  命中 `Root password:`（`ALLOW_ROOT_SSH=yes` 时存在）而误报 root 密码。
+  回读失败（容器未跑/日志无横幅）静默降级为不打印，绝不阻断 up。
+  **前置条件——日志必须可被 podman 读取**：2026-09-20 实证本机发行版默认
+  `log_driver = journald`（`/usr/share/containers/containers.conf`），在 WSL
+  嵌套 systemd 命名空间下 `podman logs <cid>` 返回 **0 字节**（日志进了宿主
+  journal，只有 `journalctl CONTAINER_NAME=<name>` 能读），于是凭证回读与
+  `invoke <ns>.logs` **同时**失效——这才是「看不到凭证」的最初根因。修复：
+  基段 `_shared/base-rootless.yaml` 显式声明 `logging: {driver: k8s-file}`
+  （三栈同构继承，`test_compose_merge.py` 有正向断言锁死），日志落盘文件后
+  `podman logs` 恢复可读。**禁止**依赖宿主默认日志驱动。
+- up 成功横幅在配置了 `JUPYTER_TOKEN` 时额外打印「直达」行
+  （`http://localhost:<jupyter 端口>/lab?token=...`，内核通用 helper
+  `overlay_core.jupyter_direct_url`，三栈同构；token 为空不打印），
+  使容器重建后免登录直达，与 C22 共同消除重建即重登体验；token 亦优先取
+  C24 回读值（预设时二者同源）。
+- 调试环境变量（PYTHONPATH/TVM_LIBRARY_PATH/LD_LIBRARY_PATH/NPU_TOOLS_ROOT/
+  XMNN_TOOLS_ROOT）经 compose environment 注入；LD_LIBRARY_PATH 必须含
+  npu_tvm/build、build/vta 与 /opt/conda/envs/main/lib（非登录 exec 不读
+  profile.d，libtvm 的 NEEDED 解析依赖此注入；spec FR-6 有留痕）。
+- **SSH 会话另需镜像侧补齐（C30）**：sshd 派生会话**不继承容器 config env**，
+  且 `ssh host "cmd"` 的最外层 `bash -c` 不读 `/etc/profile.d/*` 与
+  `.bashrc`/`BASH_ENV`（bash 仅在执行**脚本文件**时读 BASH_ENV）——上述 5 个
+  变量必须由镜像内 `overlays/native-dev/scripts/setup-ssh-env.sh` 以**双通道**
+  补齐（`/etc/profile.d/50-native-dev-env.sh` 覆盖 login shell + sshd_config 的
+  `SetEnv` 覆盖 cmd 形态），构建期在 `Containerfile.native-dev` Layer 5 与
+  `register-kernel.sh` 同批执行。硬约束：① `SetEnv` 在 sshd_config 是
+  **first-wins**（写多行只认第一条，实测 `sshd -T` 仅回显首条），**禁止**
+  写成多行，且脚本须 `sshd -t` 校验失败回滚 + `sshd -T` 计数自检；
+  ② sshd **不按连接重读** sshd_config，运行期应用须 SIGHUP；③ 该值有三份副本
+  （compose environment / kernel.json / 该脚本），由
+  [tests/test_native_dev_ssh_env.py](../../tests/test_native_dev_ssh_env.py) 逐字锁死；
+  ④ SSH 默认落在 main env（cp314t，**无 numpy**），调试/打包用
+  `/opt/conda/bin/python` 或 `conda activate base`；排障见 docs/04 C-I9。
+- 端口默认 2223/8890（与 onnx 的 2222/8888 错开，支持并行）。
+
+## 7. 标签接缝
+
+沿用 podman-compose 自动写的 `io.podman.compose.project` /
+`io.podman.compose.service` 标签做运行探测（native.smoke/wheel/build-tvm
+的容器筛选），不自行发明标签键；业务标签仅允许 `org.specweave.*`。
+
+## 8. 冒烟双路径
+
+- `_toolchain_guards.py`（镜像烤入 /opt/native-dev-smoke）：构建期 root +
+  devuser 双身份执行；栈未运行时 `podman run --rm --entrypoint
+  /opt/conda/bin/python <img> <script>` 也可独立执行（不依赖挂载）。
+  §7「离线完备性」同在该脚本内（契约见 §10），随构建期双身份执行自动获得
+  两个身份的覆盖，**不单独增设第二个守卫入口**。
+- `smoke_mounts.py`：仅栈运行路径（compose exec）；三挂载点断言始终执行；
+  libtvm.so 缺席时跳过 import/算例段并 exit 0（首次未编译合法），存在时
+  断言 tvm/vta/xmnn 来自 /workspace 源码并跑 tvm.build('llvm') 向量加。
+  **1c 段（2026-10-13 排障 C-I13）**：解析 native-dev kernelspec，断言
+  env.PATH 首段为 `/home/devuser/.local/bin`（pip --user 控制台脚本落点），
+  并 fork+setuid(1000) 下沉经 dash 非登录 shell 复核——notebook 单元格 `!`
+  走 dash（不读 ~/.profile），SSH 登录 shell 正常不构成 PATH 正确的证据。
+- 内核 `native-dev`（argv=/opt/conda/bin/python，env 携带源码路径）注册到
+  main env share/jupyter/kernels，root/devuser 双可见，构建期断言。
+  **PATH 硬约束**：env.PATH 必须前置 `/home/devuser/.local/bin`；该目录构建期
+  可尚不存在（execvp 对不存在的 PATH 条目静默跳过），但不得从 kernelspec
+  省略——否则 pip --user 安装的 xc/xs 等裸名命令在 notebook 中 100% not
+  found（SSH 侧因 ~/.profile 自动补目录而不可见此故障）。agent-monetize-dev
+  内核同契约，双栈 smoke 各有 1c 同款探针。
+
+## 9. 选型依据与边界
+
+- 选型同 OKF 知识包 concept 10：可复现工作负载（多文件路径/环境/构建产物
+  联动）用 compose 声明式栈；单资源操作留 SDK。
+- 本栈是**开发/打包端**；wheel 消费型 notebook 形态（从预构建镜像 COPY
+  wheel 直装）属 scratch 栈 spec `xmnn-overlay-rebuild`，不回流本目录。
+- external/chaos/ai 仅为事实参考；npu_tvm/npuusertools/models 是外部
+  git 仓库，只读/只挂载，任何任务不得改写其工作树（AST 临时注入除外，
+  且必须还原）。
+
+## 10. 离线契约
+
+- **两阶段契约（2026-09-17 固化，不新增命令名）**：本栈开发流程显式拆为
+  **阶段一「镜像环境构建」（有网侧，一次性）** = `native.build` + `native.save`，
+  与 **阶段二「启动开发环境并开发」（无网侧）** = `native.load` +
+  `native.up --offline` + `build-tvm` / `wheel` / `verify-wheel.sh`。两阶段是
+  既有任务的**用法契约**而非新入口，命令表面保持 10 个不变。契约要求：
+  ① 阶段二可能触达的每一项外部依赖，都必须在阶段一固化进镜像；
+  ② 阶段间只有单向传递（镜像归档 + 使用者自备源码树），阶段二**没有回补
+  手段**——缺任何一项的正确处置是回阶段一重建，禁止在无网侧 pip/apt 补救；
+  ③ 因此所有完整性校验必须前移到阶段一（见下条守卫）。
+- **离线自足性由构建期守卫实测（阶段一的验收条件）**：
+  `smoke/_toolchain_guards.py` §7「离线完备性」在镜像构建期断言
+  ① `builder/pyproject.toml` `[project].dependencies` 声明的运行时依赖
+  全部已在 base env 安装（**单一事实源**，不在守卫里另立清单；用发行版
+  元数据判定而非 dist→import 名映射）；② 打包工具链
+  （nuitka/scikit-build-core/build/wheel/invoke/ipykernel）已装；
+  ③ gcc/g++/ccache/cmake/ninja/make/patchelf/readelf 在脚本实际建立的
+  PATH 上可解析。PATH 探测必须**显式构造**
+  `/opt/conda/bin:/opt/conda/envs/main/bin:$PATH`，不得依赖调用者继承的
+  PATH（该脚本在 root 与 devuser 两身份各跑一次，须给出一致结论）。
+  守卫自身**禁止联网、禁止装包**——否则守卫成为新的离线缺口。
+- **阶段二无联网点的证据（2026-09-17 逐行核查）**：`build-tvm.sh`
+  （`invoke config` + cmake + ninja + gcc，全本地；唯一外部前提是源码树
+  自带的 3rdparty 子模块，须在联网侧检出）、`build-wheel.sh`
+  （`python -m build --no-isolation`，Nuitka 下载旗标置空）、
+  `verify-wheel.sh`（`venv --system-site-packages` 用 bundled ensurepip +
+  本地 whl `--no-deps` 安装 + 不升级 pip）三者均无对外请求。新增或修改任一
+  阶段二脚本时若引入联网点（`pip download` / `--find-links` / `uv` /
+  `FetchContent` / `--assume-yes-for-downloads` / 依赖解析），必须同步本节
+  并说明阶段一如何覆盖该依赖。
+- **能力边界（不可越界承诺）**：离线只覆盖「运行 + 容器内编译/打包」，
+  **不覆盖从零构建镜像**（构建期 apt / mamba / pip 三段均需联网）。无网
+  机器必须通过镜像归档获得镜像，任何试图让 `native.build` 在离线可用的
+  改动都属于越界，应走独立规格。
+- **单一事实源 `NATIVE_OFFLINE`**（`0`/`1`，默认 `0`）：栈侧经
+  `StackSpec.supports_offline=True` 声明后由内核 `resolve_offline()` 解析
+  （显式开 > 显式关 > `.env` > 默认，复用 `_resolve_bool` 三态语义）。
+  ⚠️ **必须解析后立即回写 `os.environ[NATIVE_OFFLINE]`，且必须发生在
+  `gates()` 之前**：WSL 桥接只透传 `bridge_env_keys` 中列出的环境变量、
+  **不转发 CLI 参数**，`--offline` 若不固化进环境就会在桥接后丢失。
+  `.env` 键不写入 compose `environment` 段（保住 `test_compose_merge.py`
+  黄金快照），容器内由 `offline_exec_env()` 以 `exec -e` 单点注入。
+- **`up` 恒 `--no-build`（C16，2026-09-18 修订）**：podman-compose 的 `up`
+  默认对含 build 段的服务执行构建，故 `compose_up_tail()` **无参无分支**恒返回
+  `["up","-d","--no-build"]`——离线与在线同构（此前 `offline=True` 才追加，属
+  C15 阶段的临时分叉，已随 C16 消除）。镜像存在性只由内核 `build_image()` 负责，
+  compose 的 `build:` 段仅服务裸 `podman-compose` 路径。因此离线**只需**强制
+  `skip_build=True`（`resolve_offline()` 结果）即可禁网，不再依赖额外的 `--no-build`
+  开关；镜像缺失时 `_require_local_image(offline=True)` fail-fast Exit(1)，指引
+  `native.save` / `native.load`。
+- **`save`/`load` 沿用既有镜像缓存约定**：tar.gz + 时间戳命名 + `latest`
+  软链 + manifest/SHA256 校验（`default_build_cache_dir` /
+  `find_latest_image_tar` / `validate_manifest_integrity`），不新造归档
+  格式；`load` 必须先校验 manifest 再导入（拷贝损坏在 load 步暴露）。
+  归档名另携带 **torch 形态**中缀（`-torch-<形态>-`），见 §11.5（C20）。
+- **容器内打包禁网 = 硬失败而非降级**：`build-wheel.sh` 读同一
+  `NATIVE_OFFLINE`，三处行为——① numpy/scipy 导入失败时不再 pip 兜底而是
+  `exit 2`；② Nuitka 的 `--assume-yes-for-downloads` 改由 `$NUITKA_DL_FLAG`
+  承载（离线为空值，unquoted 展开整体消失）；③ pip 镜像 `case` 整体跳过，
+  且缺系统 gcc（VTA FSIM 的 VLA 依赖）前置断言 `exit 2`。
+- **测试锁行为**：离线语义在 `tests/test_overlay_core.py` 有 10 个用例
+  （声明范围 / 环境回写 / `--no-build` / `exec -e` / `build` 首行 fail-fast
+  且 `runner.commands == []` / 缺镜像 Exit / `up` 任务体参数存活 /
+  `save`·`load` 仅离线栈生成），改动离线路径必须同步这组断言。
+
+## 11. 可选能力 opt-in（GPU / torch，2026-09-20 / C18·C19·C20）
+
+**总原则**：两项能力**默认全关**，不开时镜像体积、设备面与离线契约与改造前
+逐字等价（`up` 不加载 GPU 覆盖文件、`TORCH_FLAVOR` 为空不装 torch）。
+
+### 11.1 GPU 透传（`up --gpu`）
+
+- 形态与 quant 栈一致：仅当 `--gpu` 时追加 `-f <覆盖文件>`（list 追加
+  语义只写**新增**设备，不重复 `/dev/fuse`，见 [quant-overlay.md](quant-overlay.md) §4.1）。
+- **设备项只写一条** `${GPU_DEVICE:-/dev/dri}` 单 token 插值，**禁止**写成
+  `a:b` 并列两条：podman-compose 1.6.0 把 devices 列表项**原样**下传为
+  `--device <item>`（vendor `podman_compose.py` L1382-L1383，不做冒号拆分），
+  两条并列时 CDI 形态必有一条非法。
+- `GPU_DEVICE` 双形态（与根 `invoke run --gpu` 同键同语义）：
+  ① `/` 开头 → 宿主机设备路径；② 其他 → CDI 引用（如 `nvidia.com/gpu=all`，
+  宿主先 `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`）；
+  ③ **未设/空 → 自动探测**（不再是「默认 `/dev/dri`」，见下条）。
+- `GPU_DEVICE` 已列入 `bridge_env_keys`——WSL 桥接只透传环境变量、不转发
+  CLI 参数，遗漏会导致桥接后回退自动探测。
+- **GPU 是运行期维度，禁止引入 `build --gpu`**（2026-09-20 定调）：透传只改
+  compose 文件集（`--device` + 只读库 bind），**不改镜像内容**，构建期没有
+  GPU 相关对象可操作；镜像内唯一与 GPU 相关的差异是 torch 形态，已由
+  §11.2 `build --torch` 承担。两维度正交，故 `up --gpu` 与 `--offline`
+  可自由组合——**`invoke native.up --gpu --offline` 必须可用**（离线只禁构建：
+  `offline → skip_build` + 本地镜像存在性预检，与设备探测零耦合；2026-09-20
+  真机实测通过，容器零重建）。任何把 GPU 判定挪进构建期、或让离线分支拒绝
+  `--gpu` 的改动都属回归。
+
+#### 11.1.1 运行期可用性门禁与自动探测（C19，2026-09-20）
+
+**背景**（W-I16 实测）：缺省 `GPU_DEVICE=/dev/dri` 在 WSL2 宿主**不存在**
+（`podman-machine-default` 只有 `/dev/dxg`），改造前的 `--gpu` 无任何预检，
+直接透传给 podman → `Error: stat /dev/dri: no such file or directory`，
+`podman-compose up` exit 125。故 **opt-in 能力必须自带运行期可用性门禁**。
+
+- 内核 `resolve_gpu_device(c, spec, env) -> (token, form)` 是唯一解析入口，
+  在 `up_stack()`/`smoke_stack()` 中 `gpu=True` 时才调用，返回的 `form`
+  决定覆盖文件（`gpu_override_file(spec, form)`）：
+  | `form` | 覆盖文件 | 触发条件 |
+  |---|---|---|
+  | `generic` | `compose.gpu.yaml` | `nvidia.com/gpu=all`（显式 CDI 或自动命中）、`/dev/dri` 等 PCI 设备 |
+  | `wsl` | `compose.gpu.wsl.yaml`（存在时；否则回退 generic） | `/dev/dxg` |
+- **三态语义**：① 显式设备路径（`/` 开头）→ 经 `test -e` 校验存在性，缺失
+  fail-fast；② 显式 CDI 引用 → 校验 `/etc/cdi/*.yaml` 或 `/var/run/cdi/*.yaml`
+  已生成；③ 未设/空 → 自动探测顺序 **NVIDIA CDI → `/dev/dri` → `/dev/dxg`**
+  （2026-09-20 纯 N 卡 Linux 宿主实测后修订，见下「CDI 前置」），取首个命中
+  并**回写 `os.environ`**（`GPU_DEVICE`），使 compose 插值与提示文案同源。
+- **NVIDIA CDI 前置与双条件**（C-I10，2026-09-20 实测）：纯 N 卡宿主加载
+  `nvidia_drm` 后**同样注册 `/dev/dri/card*` 与 `renderD*`**，旧顺序
+  （/dev/dri 优先）会把 N 卡误判成 DRM 形态——只挂渲染节点，CDI 注入的
+  libcuda/nvidia-smi 全缺席，容器内 `torch.cuda.is_available()` 恒 False。
+  自动分支必须同时满足 `_runtime_cdi_available(c)` **且**
+  `_runtime_path_exists(c, "/dev/nvidiactl")` 才选 CDI（token 固定
+  :data:`NVIDIA_CDI_TOKEN`）：双条件防「装了 toolkit 但无 N 卡」的 Intel 宿主
+  误命中，缺一即安全回退 `/dev/dri`。显式 CDI 与自动 CDI **都必须**先过
+  `check_nvidia_driver_health(c, spec, token)`——在宿主跑 `nvidia-smi`，
+  失败即 fail-fast（`Exit(1)`）并对 `version mismatch`/`nvml` 关键词打印
+  重启/模块重载 + `nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`
+  中文诊断。**禁止跳过健康探针直接 up**：驱动内核模块（/proc/driver/nvidia/
+  version）与用户态库（dpkg）失配时宿主自身 NVML 已不可用，放行只会造出
+  设备齐全但 CUDA 初始化失败的容器。CDI 规格写入持久路径 `/etc/cdi/`，
+  tmpfs `/var/run/cdi` 重启即失且可能内部版本过期。
+- `wsl` 形态额外校验 :data:`WSL_GPU_PATHS` **三条**路径
+  （`/usr/lib/wsl/lib/libcuda.so.1` + `/usr/lib/wsl/lib/libdxcore.so` +
+  `/usr/lib/wsl/drivers`）是否齐备，缺**任一**条即 fail-fast 并**逐条点名**缺失
+  路径（驱动库在 `podman-machine-default` 内可见，实测见 11.1.2）；探测全失败时
+  **fail-fast + 中文指引**，不再把非法路径丢给 podman 报 exit 125。
+  **禁止退化为只校验 libcuda**：缺 `libdxcore.so` / `drivers` 时容器内
+  `CDLL` 成功但 `cuInit()` 返 100，属于「门禁放行 + 运行时不可用」的假通过。
+- **设备探测必须经 run_cmd 在 podman 宿主侧执行**（`test -e`），禁止在本机
+  做 `Path.exists()`——Windows 原生编排时本机文件系统与 WSL 发行版不是同一
+  视图（与 C-I3 的「不做本机存在性判断」同源）。
+- **解析必须先于 `up_preflight`，且形态要喂给预检（C23，2026-09-20）**：
+  `up_stack` 的调用顺序是 `resolve_gpu_device` → `up_preflight(gpu=…,
+  gpu_form=…)` → `run_compose_up`。两条理由：① 预检的跨平面判据要把
+  「本平面将下发的 `--file` 原文串」与运行容器标签比，而 `--gpu` 会多下发
+  一个覆盖文件，故期望串必须由 `compose_config_files_label()`（与
+  `compose_argv` 共用 `compose_files()`，唯一事实源）推出——写死单文件会让
+  **每次** `--gpu` 都被判「另一控制平面创建」而强制优雅 down + recreate
+  （实测复现，容器 Created 每次刷新）；② GPU 不可用时应当 fail-fast 于任何
+  `down` **之前**，而不是先把用户正在用的栈拆掉再报错。不变量：`up --gpu`
+  对**同样由 `--gpu` 创建**的栈必须零动作（幂等）；而 `up`（无 `--gpu`）或
+  形态切换（generic↔wsl）对 `--gpu` 创建的栈**仍须**判分歧（compose 确会
+  recreate），不得退化成前缀/子集匹配。
+
+#### 11.1.2 WSL2 形态的驱动库挂载（两轮实测矩阵，2026-09-20）
+
+`podman-machine-default`（WSL2 后端）内一次性容器实测，**分两轮**——第一轮判据
+是「库能否加载」（`CDLL("libcuda.so.1")`），第二轮装 cu130 torch 复核时改用
+「设备是否可见」（`cuInit()` / `torch.cuda.is_available()`）：
+
+| 轮次 | 配置 | 结果 |
+|---|---|---|
+| 1 | 无任何设备/库 | 失败（库不存在） |
+| 1 | 仅 `--device /dev/dxg` | 失败（缺 `libcuda.so.1`） |
+| 1 | 仅设 `LD_LIBRARY_PATH=/usr/lib/wsl/lib` | 失败（容器内无该文件） |
+| 1 | 挂整目录 `/usr/lib/wsl/lib:ro`（不设 `LD_LIBRARY_PATH`） | 失败（该目录未进容器内 ld 搜索路径） |
+| 1 | `--device /dev/dxg` + **单文件挂载 libcuda** `/usr/lib/wsl/lib/libcuda.so.1:/usr/lib/libcuda.so.1:ro` | CDLL 成功 |
+| 2 | 同上（仍缺 ②③） | **`cuInit()`=100 `CUDA_ERROR_NO_DEVICE`**、`torch.cuda.is_available()`=False |
+| 2 | 上 + `--cap-add SYS_ADMIN` / `seccomp=unconfined` | 100（无效） |
+| 2 | 上 + 单文件 `libdxcore.so`（仍缺 drivers 目录） | 100（仍 NO_DEVICE） |
+| 2 | **`--device /dev/dxg` + 三条只读 bind（单文件 `libcuda.so.1` + 单文件 `libdxcore.so` + 目录 `/usr/lib/wsl/drivers`）** | **`cuInit()`=0、`cuDeviceGetCount()`=1、`torch.cuda.is_available()`=True** |
+| 2 | `--privileged` + 挂整个 `/usr/lib/wsl` | 0 成功（**有效但非必要**） |
+
+- 结论：`compose.gpu.wsl.yaml` = `devices: [/dev/dxg]` + **三条** bind
+  `read_only: true`（`bind.create_host_path: false`）——三条**同为最小充分条件**，
+  缺任一即 CUDA 不可用（缺 ① 是 CDLL 层失败，缺 ②③ 是 NO_DEVICE 层失败）。
+  内核 :data:`WSL_GPU_PATHS` 与测试断言必须与三条一致，**不得只留 libcuda**。
+- **`/dev/dxg` 只是半虚拟化通道**：设备节点本身不提供 CUDA 实现，libcuda 由
+  WSL 宿主提供；「CDLL 成功」只证明库被找到，**不证明设备被枚举**——两轮判据
+  的差异正是本形态最容易踩的假阳性（第一轮结论曾据此把单文件挂载写成充分条件）。
+- **刻意不设 `LD_LIBRARY_PATH`**：该 compose 字段是 **mapping 替换**语义，
+  一旦设 `/usr/lib/wsl/lib` 会冲掉栈原有的 TVM 库路径
+  （`.../npu_tvm/build:.../vta:.../main/lib`）——三条 bind 的挂载点均落在
+  基底默认搜索路径（`/usr/lib`、`/usr/lib/wsl/drivers`）上，无需改环境变量
+  （实测容器内 `printenv LD_LIBRARY_PATH` 未被污染）。
+
+### 11.2 torch 形态（`build --torch` / `TORCH_FLAVOR`）
+
+- 取值是**白名单** `("", "cpu", "cu130")`（`overlay_core.TORCH_FLAVORS`），
+  解析期非法值 `Exit(1)`：该值直接拼进 `download.pytorch.org/whl/<flavor>`
+  索引 URL，构建期网络请求目标**不得由用户输入任意拼接**。
+- 键遵循 C15：**无前缀** `.env` 键 `TORCH_FLAVOR`，与 `compose.yaml`
+  `build.args` 的 `${TORCH_FLAVOR:-}` 同键；CLI `--torch` 只覆盖单次
+  `build`（`up` 内联构建与 compose 段看不到旗标，跨三处一致必须写 `.env`）。
+- 安装脚本 `builder/scripts/install-torch.sh`（Layer 2.5，位于 mamba 工具链
+  层之后、`COPY builder` 之前）装 **base env `/opt/conda`**（cp314 GIL），
+  依据 C13 双 ABI 不可互换；pin `torch==2.14.0`（`TORCH_VERSION`）。
+  **cu130 是 2026-09-20 实测唯一与 CPU 侧同 pin 的 CUDA 索引**
+  （cu129→2.13.0、cu128→2.11.0 会引入版本漂移，勿改用）。
+- 形态落 `/opt/native-torch-flavor`（空/cpu/cu130），由构建期守卫
+  `_toolchain_guards.py` §8 断言「声明 vs 实物」：空→torch 必须缺席、
+  cpu→已装且 `torch.version.cuda is None`、cu130→已装且非空。脚本缺失标记
+  文件即判失败（Layer 2.5 未执行）。
+- **flavor 不参与镜像 tag**（沿用 `NATIVE_IMAGE_TAG`，一 tag 一形态）；
+  换 flavor 后必须 `invoke native.build` 重建，不能靠 `up` 增量刷新。
+  由此产生的「同 tag 双形态归档不可辨识」盲区由 §11.5（C20）在归档层补齐。
+- torch 属**可选依赖**，不写入 `builder/pyproject.toml`，故 §7 离线完备性
+  守卫不受影响（空形态下镜像仍离线自足）；但 **cu130 形态的 CUDA 运行时
+  依赖由 wheel 自带**，离线侧不额外补装。
+- **cu130 形态同时提供 CUDA 编译器工具链（nvcc）**——「cu130 = CUDA 13 开发
+  环境」的完整语义；安装脚本、三包同轨 pin、农场/wrapper 纪律与实测依据见
+  §11.6（C25）。
+
+### 11.3 内核形参面 = 能力并集
+
+`make_stack_tasks()` 的 `up`/`smoke` 形参按**能力并集**生成（`gpu_override`、
+`passthrough_overlay`、`gui_overlay`、`usb_overlay`、`supports_offline`
+五路正交 + 公共 `_up_impl`），**禁止 if/elif 互斥分支**：
+native 同时声明两能力后，互斥写法会让 `--offline`/`--no-offline` 被 gpu 分支
+吃掉，静默破坏 §10 离线契约（GUI 为 2026-09-23 C33 加入的第五路，见 §11.7）。
+`up_help` 的 GPU 提示文本按 `gpu_device_env`
+动态生成（有该字段时提示双形态与自动探测顺序，无则提示硬编码 `/dev/dri`）。
+
+### 11.4 测试锁行为（C19 / C23）
+
+CUDA 设备解析在 `tests/test_overlay_core.py` 有 13 个用例（覆盖文件 form 分派
+与回退、`/dev/dri` 自动探测、`/dev/dxg` 自动探测 + **三条宿主路径缺任一均
+fail-fast**、无设备 fail-fast、显式路径缺失 fail-fast、CDI 未生成 fail-fast、
+**NVIDIA CDI 自动前置于 /dev/dri**、**有 CDI 规格但无 /dev/nvidiactl 回退
+dri**、**驱动版本失配 fail-fast**、**显式 CDI 同样强制健康探针**、
+wsl form 贯通到 compose argv、quant 同路径、**不开 `--gpu` 绝不探测设备**）；
+渲染侧在 `tests/test_compose_merge.py` 断言 `compose.gpu.wsl.yaml` 的
+`devices: [/dev/dxg]` 与 **三条 bind（target 全集 + source 映射 + 逐条
+`read_only`/`create_host_path: false`）**，以及 quant 的
+`${GPU_DEVICE}` 双形态插值。改动 GPU 解析路径必须同步这两组断言；
+`WSL_GPU_PATHS` 增删条目时，`compose.gpu.wsl.yaml`（两栈）、这两组断言与
+本规则 §11.1.1/§11.1.2 必须同批更新，**禁止只改常量不改覆盖层**
+（缺项会让门禁放行一个 `cuInit()=100` 的形态）。
+
+C23 另加 6 例锁住「文件集同源 + 判据不对称性」：`compose_config_files_label`
+的逗号约定（单文件 / `--gpu` 双文件）、**同源锁**（三组 `(gpu, form)` 下
+`compose_argv` 的 `--file` 值拼接必须逐字等于 label 输出）、`up_preflight`
+的三种平面关系（gpu 平面同集 → 零 down；非 gpu 平面对 gpu 栈 → 必须 down；
+form 切换 → 必须 down），以及端到端 `up_stack(gpu=True)` 在 gpu 栈上幂等
+（无 `down`、无「另一控制平面」提示）。改判据或改 `compose_files()` 必须
+同步这组断言——**禁止**放宽为前缀/子集匹配来让用例变绿。
+
+### 11.5 归档的 torch 形态身份（C20，2026-09-20）
+
+**问题**：§11.2「flavor 不参与镜像 tag」+ §10「`load` 按 mtime 取最新归档」
+两条正确规则叠加出一个盲区——cpu 与 cu130 两份镜像 **tag 相同**
+（`localhost/native-dev:latest`），若归档名也不带形态，则两者同族同名、共用
+同一个 `-latest` 软链，离线机 `load` 会**静默导入错形态**，直到容器内
+`torch.cuda` 为空才暴露。
+
+- 形态的唯一事实源是镜像内 **LABEL `org.specweave.torch-flavor`**
+  （构建期 build-arg 烘入，与 `/opt/native-torch-flavor` 标记文件并列）。
+  `save_image` 复用已有的 `image_inspect_info` 调用顺带取 LABEL，
+  **签名不变**（不新增参数）。
+- 归档名：`<safe_name>[-torch-<形态>]-<short_id12>-<YYYYMMDD-HHMMSS>.<ext>`，
+  `-latest` 软链同 stem。**无形态时不加段**，命名与历史产物逐字一致。
+- **形态段必须带 `-torch-` 标记中缀**：镜像 tag 自带 `-latest` 段，无标记的
+  `-<形态>-` 会被反向正则左最早匹配成 `flavor=latest`（`...-native-dev-latest-<shortid>-<ts>.tar.gz`）。
+  `client_core.save_image` 的命名与 `utils.archive_flavor` 的解析**严格互逆**，
+  改动其一必须同步另一处。
+- `find_latest_image_tar(search_dir, flavor=None)`：`None` 不过滤（历史语义、
+  零回归）、空串只取未标注形态、`"cu130"` 只取该形态；无匹配返回 `None`。
+- `load` 的形态感知**仅当 `spec.torch_flavor` 为真**时生效（其余栈零影响）：
+  ① 未给 `--path` + 期望形态非空 → 按形态过滤选档；② 过滤后无档 → `Exit(1)`
+  （提示当前 `TORCH_FLAVOR`）；③ `--path` 点名的归档形态与期望不符 → `Exit(1)`
+  （**校验先于导入**）；④ 归档未标注形态（C20 之前的旧产物）→ 打印提示但
+  **不拦截**（不能因命名演进拒绝历史归档）。
+- 期望形态解析序与 `torch_build_args` 一致：`os.environ["TORCH_FLAVOR"]` >
+  `.env TORCH_FLAVOR` > `""`。
+- manifest 段的 `TORCH_FLAVOR=<形态>` 是**冗余记账字段**（供人工核对），
+  **不是 load 的判定依据**——`validate_manifest_integrity` 按 `## ` 分段解析，
+  而 `_append_manifest` 写单 `#` 表头，实际只有一个块、字段会被后一段覆盖，
+  只有最后一次 save 的产物能通过校验；故形态判定必须以**归档名**为准。
+- **测试锁行为**：`tests/test_image_archive.py`（新增，13 例）覆盖
+  `archive_flavor` 四态（含 `-latest` 不得冒充形态）、
+  `find_latest_image_tar` 形态过滤/无匹配/跳过软链、`save_image` 命名与
+  manifest（有形态 / 无形态零回归）、`_image_torch_flavor` 降级；
+  `tests/test_overlay_core.py` 另有 5 例锁 `load` 选档与拦截语义。
+
+### 11.6 CUDA 编译器工具链随 cu130 形态提供（C25，2026-09-20）
+
+**背景（现场）**：`TORCH_FLAVOR=cu130` 真机上 `torch.cuda.is_available()` 为
+True，但容器内 `nvcc -V` 报 `not found`。根因两层：① torch cu130 的依赖闭包
+只含 CUDA **运行时/库**（`nvidia-cuda-runtime`/`nvrtc`/`cublas`… 以及
+`Requires:` 为空的 `cuda-toolkit` **元包**），**不含编译器** `nvidia-cuda-nvcc`；
+② 既有验收全在运行期层（`cuInit()` / `torch.cuda.is_available()` / `CDLL`），
+§8 守卫只断言 torch 形状，**没有任何断言覆盖编译器层**——「运行时冒充工具链」
+被静默放行。
+
+- **归属裁决**：nvcc **并入 `TORCH_FLAVOR=cu130` 形态**（语义 = 「CUDA 13 开发
+  环境」），**不新增独立构建开关**——独立开关会引入第三个「同 tag 不同内容」的
+  形态维度，而复用 C20 归档身份需改动 save/load 命名契约，收益不抵复杂度。
+  默认形态（`""`/`cpu`）**零 CUDA 编译器**，C18「默认全关 = 默认隔离」不变。
+  旧 cu130 归档不含 nvcc（同一形态的版本演进，非 C20 类别的「互斥能力串档」），
+  需要者须回有网侧重建并重新 `save`。
+- **安装脚本** `builder/scripts/install-cuda-toolkit.sh`（**Layer 2.6，独立成层**
+  ——改本层不触碰 Layer 2.5 的 ~2GB torch 层缓存），由 `TORCH_FLAVOR` 白名单
+  路由（`""`/`cpu` 跳过、`cu130` 安装、非法值 Exit 1）；pip 索引走 `PIP_MIRROR`
+  三档映射（C15 同键）。
+- **三包必须同轨**：`nvidia-cuda-nvcc` + `nvidia-cuda-crt` + `nvidia-nvvm` 同一
+  pin（当前 `13.4.92`）。混版实测症状：cicc（nvvm 13.4）产 PTX `.version 9.4`、
+  ptxas（nvcc 13.0）只认 9.0 → `ptxas fatal: Unsupported .version 9.4`。
+- **为何 pin 13.4.92 而非与 torch 运行时同轨的 13.0.x**：基座 Ubuntu 26.04 /
+  glibc 2.43 下 CUDA 13.0 的 `crt/math_functions.h` 与 glibc `mathcalls.h` 的
+  `rsqrt` noexcept 规格冲突（`-std=c++14/17/20` 三档均复现），13.4.92 实测通过
+  ——编译器线高于运行时线是**基座约束**；torch 的 CUDA 运行时仍由 cu130 wheel
+  自带，不受影响。
+- **`/usr/local/cuda` 农场 + wrapper 纪律（禁裸软链）**：pip 布局在
+  `site-packages/nvidia/cu13/{bin,nvvm}`，**无 lib64、无 `libcudart.so` 短名**，
+  且 nvcc **以 argv[0] 所在目录定位自身根**（`bin/..//include`）：
+  ① 裸软链 `/usr/local/bin/nvcc → 真身` 是**假通过**——`_HERE_` 落
+  `/usr/local/bin`，报 `cuda_runtime.h: No such file`（实测），**禁止**；
+  ② 农场 `/usr/local/cuda/{bin,include,lib64,nvvm}` 软链 pip 实体，并为
+  `cu13/lib/lib*.so.<ver>` 补短名（缺短名时 `-lcudart` 报
+  `cannot find -lcudart`，实测）；
+  ③ PATH 上的 `/usr/local/bin/nvcc` 是**唯一入口**（包装器 exec 农场全路径）。
+  运行期 pip 升级单个 CUDA 组件会丢短名软链 → **禁止**，须回有网侧重打镜像
+  （与 §10 无网侧不得补装同源）。
+- **CUDA_HOME**：Containerfile 末尾 `ENV CUDA_HOME=/usr/local/cuda`（置文件末尾
+  以免使既有层缓存失效）；无它则 `which nvcc` 推出 `/usr/local`（wrapper 所在
+  目录）而非农场根，torch 扩展编译头文件解析错误。
+- **动态链接器登记（`/etc/ld.so.conf.d/10-native-cuda.conf` + `ldconfig`）**：
+  真实 toolkit 安装器同款做法。缺这一步时**编译/链接都过、运行期才炸**——
+  `libcudart.so.13: cannot open shared object file`（链接期有 nvcc 默认 `-L`，
+  运行期 ld.so 不认识 `/usr/local/cuda/lib64`；2026-09-20 真机实测）。替代
+  方案是让用户设 `LD_LIBRARY_PATH`，与本栈 C19 纪律（禁以 env 覆盖库路径）
+  冲突，故必须在镜像层解决。
+- **构建期守卫**：`smoke/_toolchain_guards.py` §9 四查——① 标记
+  `/opt/native-cuda-nvcc-version` 与 `nvcc --version` 实测版本一致；② 农场布局
+  齐备（`bin/nvcc`、`include/cuda_runtime.h`、`lib64/libcudart.so`、
+  `nvvm/libdevice`）；③ `ldconfig -p` 已登记 `libcudart`（产物可运行）；
+  ④ **真编译 + 真链接**最小 `.cu`（`-c` 与 `-lcudart` 双段，**不运行**——构建
+  期无 GPU 设备属预期边界）。非 cu130 形态反向断言 nvcc 与标记双双缺席。
+  「nvcc 存在」不是充分条件——头文件冲突、三包错版与链接器登记缺失都只在
+  编译/运行期暴露。
+- **默认 `-arch` 边界（2026-09-20 实测）**：nvcc 缺省 arch（sm_75）产物在新架构
+  GPU（本机 RTX 5050 Laptop = cc 12.0/sm_120）上**能编能链、启动期报**
+  `the provided PTX was compiled with an unsupported toolchain`——根因是 nvcc 13.4
+  产出的 PTX 版本高于宿主驱动线（本机 WSL 驱动 580.102 ≈ CUDA 13.0 代）所支持的
+  版本，属**工具链/驱动版本差**而非镜像缺陷；`-arch=native` 与 `-arch=sm_120`
+  两条路径均真机实测通过（`result=42`；device 枚举/拷贝/同步本已正常，失败只在
+  JIT 发射一跳）。**镜像刻意不预设 arch**：`-arch=native` 需编译期可见设备
+  （构建期无 GPU），预设还会把产物绑死构建机。文档层（README/排障）必须给
+  `-arch=native` 指引，镜像层不得注入默认值；torch 扩展编译走 torch 自身 arch
+  检测（`TORCH_CUDA_ARCH_LIST`）不受影响。
+- **边界**：`nvidia-smi` 属运行期 WSL 形态（宿主 `/usr/lib/wsl/lib/nvidia-smi`
+  还需 `libnvidia-ml` 等依赖），**不在本条款范围**；容器内编译产物能否运行仍
+  取决于 `up --gpu` 的设备透传（C19）。
+
+### 11.7 GUI 显示透传（`up --gui`，C33，2026-09-23）
+
+**背景**：07 文档原记载「本栈无 GUI 转发叠加层」，X11/Wayland 需求只能裸
+compose 自行挂载；根 `invoke run --wayland` 有能力但未下沉声明式栈。本条款把
+GUI 收口为与 GPU/USB/D-Bus 同族的 **opt-in 运行期维度**（默认全关，不开时
+渲染/运行逐字等价）。
+
+- **栈开关 `--gui`（非 `--wayland`）且是根路径超集**：根 `invoke run --wayland`
+  只挂 Wayland 单 socket；栈侧 `resolve_gui()` 在 daemon 宿主探测
+  **Wayland 与 X11 两条独立通道**，命中几层加载几层，任一命中即放行——
+  WSLg 下两通道恒共存（真机实证 `/mnt/wslg/runtime-dir/wayland-0` 与
+  `/mnt/wslg/.X11-unix/X0`），纯 Wayland/纯 X11 物理宿主只挂一层。旗标名取
+  `--gui` 对齐 07 维度表与文件名，根/栈命名差异由 client docs/09 映射表维系。
+- **三个覆盖文件（wayland / x11 / x11-tcp），禁止合并为单文件**：
+  `compose.passthrough.gui.yaml`（Wayland：bind
+  `${GUI_WAYLAND_SOCKET:-/mnt/wslg/runtime-dir/wayland-0}` →
+  `/tmp/runtime-user/${HOST_WAYLAND_DISPLAY:-wayland-0}`，env
+  `XDG_RUNTIME_DIR`/`WAYLAND_DISPLAY`）、`compose.passthrough.gui.x11.yaml`
+  （X11 unix：bind **目录** `${GUI_X11_SOCKETDIR:-/mnt/wslg/.X11-unix}` →
+  `/tmp/.X11-unix`，env `DISPLAY`）与 `compose.passthrough.gui.x11.tcp.yaml`
+  （X11/TCP：**不挂 socket**，只 bind cookie 单文件
+  `${GUI_XAUTHORITY_FILE:-/tmp/.gui-xauthority-missing}` →
+  `/tmp/runtime-user/gui-xauthority`（read_only）+ env `DISPLAY`/`XAUTHORITY`；
+  缺令牌时源是 sentinel 不存在路径，裸 compose 加载必 exit 125 而非静默放行）。
+  静态 compose 无法按宿主条件删 bind，缺源 + `create_host_path: false` 必
+  exit 125——故文件集由内核探测结果决定（与 `gpu_override_file` 按形态选文件
+  同构），**禁止**在一份文件里写死多 bind。x11 与 x11-tcp 是同一显示服务的
+  两种传输、**互斥**（unix 命中即不探 TCP）；二者均可与 wayland 并存。
+- **探测序与令牌（shell export > .env > 缺省）**：会话环境由 daemon 侧
+  printf 探针 `_runtime_session_gui_env` 一次性取回
+  `(XDG_RUNTIME_DIR, WAYLAND_DISPLAY, DISPLAY)`（目录按
+  `$XDG_RUNTIME_DIR → /run/user/$(id -u)` **动态推导，禁止写死 1000**——
+  本机 UID=1006 实证，同 §11.5 D-Bus 动态探测）。Wayland 候选序：显式
+  `$HOST_XDG_RUNTIME_DIR/$HOST_WAYLAND_DISPLAY` → 会话动态目录/<display> →
+  `/mnt/wslg/runtime-dir/<display>` → `/run/user/1000/<display>`（历史兜底）；
+  X11 unix 候选序：显式 `$GUI_X11_SOCKETDIR` → 会话目录/.X11-unix →
+  `/mnt/wslg/.X11-unix` → `/tmp/.X11-unix`（判据 `<dir>/X<n>` 是 socket，
+  n 取 `$GUI_DISPLAY` 的 unix 显示号，缺省 0）。命中后回写
+  `GUI_WAYLAND_SOCKET`/`HOST_WAYLAND_DISPLAY`/`GUI_X11_SOCKETDIR`/`GUI_DISPLAY`
+  供 compose 插值；全部 `test -S` 经 `run_cmd` 落 daemon 宿主（禁本机
+  `Path.exists()`，同 C19）。
+- **X11/TCP 形态（ssh -X，2026-09-28 增补）**：无本地桌面的 SSH 远程会话
+  只有 `sshd` 转发到宿主 **loopback** 的 `127.0.0.1:60<n>`。规则：
+  ① 仅解析 `GUI_X11_TCP_DISPLAY` 或会话 `$DISPLAY` 的 TCP 形态，
+  `parse_x11_tcp_display` **只接受 localhost/127.0.0.1/::1**（localhost
+  归一 127.0.0.1，显示号 0–99），拒绝任意远程主机；unix 形态 `:n` 返回 None；
+  ② 探活 `timeout 2 bash -c 'exec 3<>/dev/tcp/host/port'`——**TCP 可连≠X
+  可用**（失效 SSH 会话的转发 proxy 仍 LISTEN 但 X 握手 RST，真机实证），故
+  绝不自动扫描会话、严格按当前 `$DISPLAY` 探测，另用 `ss -lnt` 列活跃 60xx
+  仅供诊断；③ **仅 host 网络**（`--passthrough`）：bridge 容器不可路由宿主
+  loopback，此时不给形态、fail-fast 提示加 `--passthrough`；④ cookie：
+  显式 `GUI_XAUTHORITY_FILE` 优先，否则纯函数解析本机 `~/.Xauthority`
+  （family u16 + 4 段 u16 前缀串，禁调 xauth 命令）抽取该显示号首条
+  (proto, cookie)，`encode_familywild_xauth` 重编码为 **FamilyWild(0) 单条**
+  最小文件写 `$XDG_RUNTIME_DIR/gui-xauthority-<n>`（**0644**：rootless 容器
+  内为子 uid，0600 单文件 bind 不可读；会话目录 0700 兜底防遍历），回写
+  `GUI_DISPLAY=127.0.0.1:n` 与 `GUI_XAUTHORITY_FILE`；cookie 内容禁止入日志。
+  ⑤ fail-fast 诊断按证据分支：失效会话（列活跃转发、提示重 `ssh -X`）/
+  bridge 拦截（提示组合旗标）/ cookie 缺失（GUI_XAUTHORITY_FILE 手工指定），
+  并保留 WSLg、物理 Linux xhost、去掉 `--gui` 通用指引。
+- **正交性**：wayland/x11 unix 只追加 `volumes` + `environment`，**bridge
+  形态即可用**（Jupyter 保持 8890），不要求 `--passthrough`、不切镜像 tag、
+  不改网络；**x11-tcp 是例外**：强依赖透传主层的 host 网络（不加载主层时
+  本层连不通，sentinel 源亦保证硬失败）。与 D-Bus 层共用容器内
+  `/tmp/runtime-user`（文件名 `wayland-0`/`bus`/`gui-xauthority` 不冲突）。
+  文件加载顺序：base → GPU → 透传 → GUI（Wayland → X11 → X11/TCP）→ USB；
+  `compose_files()` 的 `gui`/`gui_forms` 参数是 argv 与 `up_preflight`
+  config_files 标签的唯一事实源（同 C23）。门禁序 GPU → 透传 → GUI → USB，
+  任一失败先于任何 down/up。
+- **形参面（C18 能力并集）**：`StackSpec.gui_overlay` 声明（仅 native 置真）；
+  工厂 up/smoke 形参在透传分支并集增加 `gui`（黄金清单
+  test_tasks_surface / test_factory_up_smoke_params_are_capability_union 锁位）；
+  `gui=True` 但 `gui_forms=()` 是内部不变量违例（RuntimeError），未声明栈
+  收到 `gui=True` 同违例。
+- **WSL 桥接键**：只转发用户可设六键（`HOST_XDG_RUNTIME_DIR` /
+  `HOST_WAYLAND_DISPLAY` / `GUI_X11_SOCKETDIR` / `GUI_DISPLAY` /
+  `GUI_X11_TCP_DISPLAY` / `GUI_XAUTHORITY_FILE`）；探测令牌
+  `GUI_WAYLAND_SOCKET` 在 WSL 侧重跑 resolve_gui 生成，不入 bridge_env_keys。
+- **安全边界**：Wayland/X11 socket 允许容器进程接入宿主桌面会话（截屏、输入
+  注入面），三文件头与 07 文档必须保留「仅用于可信镜像、默认全关」警示；
+  物理 Linux X11 需宿主 `xhost local:root`（WSLg X server 默认 -ac 免认证）。
+  X11/TCP 另需：只接受 loopback 目标（禁止容器被引向任意远程 X server）、
+  只下发该显示号的 FamilyWild 单条 cookie（不转发完整 ~/.Xauthority）。
+- **冒烟同源**：`native.smoke --gui` 仅在栈运行路径把两文件带入 exec argv；
+  standalone 裸 run 不带 GUI 覆盖，提示文案含 `--gui`。冒烟守卫本身不依赖
+  显示 socket（Hello-World 级连通验证由 07 文档的 AF_UNIX 三行命令承担）。
+
+### 11.8 B-scheme 宿主 podman socket 直通（C34，2026-09-24）
+
+**背景**：容器内 Notebook/CLI 的 `podman.PodmanClient.from_env()` 报
+`FileNotFoundError (uds.py connect)`。根因不是 socket 路径漂移，而是三叠加栈
+（native-dev / onnx-quantized / agent-monetize-dev）compose **从未接入**
+B-scheme（旧修复只覆盖 jupyter 主栈 compose 与根 `invoke run`）：无
+`HOST_PODMAN_SOCK` 时基底 entrypoint 静默回退容器内自建 rootless daemon
+（DinP），rootless 套 rootless 必被 `newuidmap` 拒
+（`write to uid_map failed: Operation not permitted`），socket 永不生成，
+entrypoint 却仍导出指向死路径的 `CONTAINER_HOST`，故障迟到 Notebook 运行时
+才暴露。
+
+- **受管栈默认直通、无 opt-out 开关**（信任模型对齐 jupyter 主栈与
+  `invoke run`）：三栈 compose 必须各含一组 B-scheme 声明——
+  volumes 长语法 bind，**`source == target == ${HOST_PODMAN_SOCK:-...}`**
+  （同路径是 entrypoint `test -S $HOST_PODMAN_SOCK` 的硬契约），
+  `bind.create_host_path: false`（缺源必须 podman 硬失败，禁止
+  os.makedirs 误建）；environment 同名键同值。缺省值 1000 仅服务裸
+  podman-compose 的 WSL2 惯例 UID。
+- **invoke 路径单一预检点**：`overlay_core.resolve_host_podman_socket()`
+  在 `up_stack()` 中**先于 build/一切门禁/任何 down** 调用
+  `jpman_common.connection.ensure_host_podman_socket()`（Linux 免提权
+  `systemctl --user start podman.socket` 自愈；非 Linux/容器内/非 podman
+  放行），失败以 C-I5 指引 Exit(1)；令牌优先级 shell export > 根 .env >
+  `podman_sock_path()`（UID 经 `PODMAN_RUNTIME_UID`/`$XDG_RUNTIME_DIR`/
+  `id -u` 推导，禁硬编码），写 `os.environ` 供 compose source/target/env
+  三处插值。三栈共用此一处钩子，禁止各栈私有副本。
+- **新栈准入硬约束（E 沉淀，防再次漏接）**：凡 `extends: rootless-base`
+  （即基于 jupyter-podman-rootless 镜像）的新叠加栈，compose 必须显式接入
+  B-scheme 挂载段 + `HOST_PODMAN_SOCK` env，或在栈文件头与本规则中书面
+  声明「不提供容器内 podman 访问」的禁用理由；**禁止依赖 entrypoint DinP
+  静默回退充当默认**（嵌套 rootless 在物理 Linux 与 WSL 均不可用）。
+  `test_compose_merge.py` 的三栈渲染断言是该约束的测试锁。
+- **不改 entrypoint/不重建镜像**：B-scheme 分支（符号链接、属组衔接、
+  sshd SetEnv、CONTAINER_HOST 导出）已在基底镜像完备；DinP 死路径仍导出
+  CONTAINER_HOST 的可诊断性问题属 entrypoint 侧后续议题，不在本条款范围。
+

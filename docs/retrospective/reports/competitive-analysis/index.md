@@ -6,10 +6,13 @@
 
 analyze-wechat-article-3dnk-20260706/index
 harness-engineering-analysis/index
+research-ai-coding-business-model-evolution-20260929/index
+research-china-side-income-platforms-20260919/index
 retrospective-action-first-command-bootstrap-20260728/index
 retrospective-agnes-free-api-learning-20260704/index
 retrospective-ai-regulation-analysis-20260708/index
 retrospective-apple-india-leak-china-manufacturing-20260713/index
+retrospective-atomgit-selection-evaluation-20260928/index
 retrospective-audiox-turbo-wiki-20260803/index
 retrospective-claude-code-context-injection-learning-20260704/index
 retrospective-claude-tag-article-learning-20260629/index
@@ -74,5 +77,6 @@ retrospective-wsl-containers-article-analysis-20260714/index
 retrospective-wsl-learning-plan-20260701/index
 retrospective-wslc-vs-podman-comparison-20260701/index
 retrospective-yct-onionhead-wiki-update-20260706/index
+zhihu-monetization-path-20260923/index
 retrospective-zleap-agent-harness-learning-20260704/index
 ```

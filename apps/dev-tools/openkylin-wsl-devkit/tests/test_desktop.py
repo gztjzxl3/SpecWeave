@@ -1,0 +1,376 @@
+"""desktop 子组：领域判定 + CLI 编排（假 wsl 输出注入，不触真实 WSL）。"""
+
+from pathlib import Path
+
+from okw import cli, desktop
+
+from conftest import make_result
+
+PROBE_OK = "\n".join([
+    "okw_xrdp_bin=yes",
+    "okw_xrdp_active=active",
+    "okw_sesman_active=active",
+    "okw_port_listen=1",
+    "okw_user=openkylin",
+    "okw_uid=1000",
+    "okw_xsession=ok",
+]) + "\n"
+
+PROBE_BLACK_SCREEN = PROBE_OK.replace("okw_xsession=ok", "okw_xsession=missing")
+
+DESKTOP = "openKylin-3.0-desktop"
+
+
+def _prime_ok(fake_run_wsl, probe: str = PROBE_OK):
+    fake_run_wsl.script["-l -v"] = make_result(stdout=f"* {DESKTOP} Running 2\n")
+    fake_run_wsl.script["os-release"] = make_result(stdout='ID=openkylin\nVERSION="3.0"\n')
+    fake_run_wsl.script["wsl.conf"] = make_result(stdout="[boot]\nsystemd=true\n\n[user]\ndefault=openkylin\n")
+    fake_run_wsl.script["okw_xrdp_bin"] = make_result(stdout=probe)
+
+
+# ----------------- 领域单元 -----------------
+
+def test_parse_runtime_probe_extracts_labeled_lines():
+    parsed = desktop.parse_runtime_probe(PROBE_OK + "noise\n")
+    assert parsed["xrdp_bin"] == "yes"
+    assert parsed["port_listen"] == "1"
+    assert parsed["xsession"] == "ok"
+
+
+def test_watchdog_script_contains_markers_and_session_handoff():
+    assert "XDG_RUNTIME_DIR" in desktop.XSESSION_WATCHDOG
+    assert "kwin_x11" in desktop.XSESSION_WATCHDOG
+    assert "exec ukui-session" in desktop.XSESSION_WATCHDOG
+
+
+def test_patch_script_backs_up_and_marks_unchanged():
+    script = desktop._xsession_patch_script()
+    assert ".xsession.bak-" in script
+    assert "OKW_XSESSION_EOF" in script
+    assert "unchanged" in script
+
+
+def test_default_port_is_documented_3390():
+    assert desktop.DEFAULT_PORT == 3390
+
+
+def test_build_rdp_content_pins_address_and_username():
+    # 用户名由 .rdp 显式托管，规避 mstsc 历史 UsernameHint 驼峰污染
+    content = desktop.build_rdp_content("localhost:3390", "openkylin")
+    assert "full address:s:localhost:3390\r\n" in content
+    assert "username:s:openkylin\r\n" in content
+
+
+def test_login_user_probes_id_un_and_falls_back(fake_run_wsl):
+    _prime_ok(fake_run_wsl)
+    fake_run_wsl.script["id -un"] = make_result(stdout="openkylin\n")
+    assert desktop._login_user(DESKTOP) == "openkylin"
+    # 探测失败（发行版瞬态不可执行等）回退镜像契约账号，不阻断 launch
+    assert desktop._login_user("ghost-distro") == desktop.DEFAULT_LOGIN_USER
+
+
+def test_generated_scripts_avoid_nested_quotes_in_substitution():
+    # Windows wsl.exe 桥接会把 $() 内的双引号转义吞掉（2026-10-13 实测）；
+    # 探针与补齐脚本均须避免在命令替换内嵌双引号。
+    for script in (desktop._RUNTIME_PROBE, desktop._xsession_patch_script()):
+        assert '"$HOME' not in script
+        assert '$(test -f "' not in script
+
+
+# ----------------- CLI：preflight -----------------
+
+class TestDesktopPreflight:
+    def test_preflight_pass(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl)
+        assert cli.main(["desktop", "preflight", DESKTOP]) == 0
+        assert "已就绪" in capsys.readouterr().out
+
+    def test_preflight_black_screen_fail(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl, probe=PROBE_BLACK_SCREEN)
+        assert cli.main(["desktop", "preflight", DESKTOP]) == 1
+        out = capsys.readouterr().out
+        assert "首登黑屏看门狗" in out and "FAIL" in out
+
+    def test_preflight_missing_distro(self, fake_run_wsl, capsys):
+        fake_run_wsl.script["-l -v"] = make_result(stdout="  NAME STATE VERSION\n")
+        assert cli.main(["desktop", "preflight", "ghost"]) == 1
+        assert "未注册" in capsys.readouterr().out
+
+    def test_group_without_subcommand_returns_2(self, capsys):
+        assert cli.main(["desktop"]) == 2
+        assert "okw desktop" in capsys.readouterr().out
+
+
+# ----------------- CLI：install -----------------
+
+class TestDesktopInstall:
+    def test_install_without_yes_zero_write(self, fake_run_wsl, capsys):
+        assert cli.main(["desktop", "install", DESKTOP]) == 2
+        out = capsys.readouterr().out
+        assert "未提供 --yes" in out
+        assert fake_run_wsl.calls == []  # 零写入、零探测
+
+    def test_install_missing_xrdp(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl, probe=PROBE_OK.replace("okw_xrdp_bin=yes", "okw_xrdp_bin=no"))
+        assert cli.main(["desktop", "install", DESKTOP, "--yes"]) == 1
+        assert "xrdp" in capsys.readouterr().out
+
+    def test_install_happy_path(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["systemctl enable --now"] = make_result()
+        fake_run_wsl.script["OKW_XSESSION_EOF"] = make_result(stdout="patched\n")
+        assert cli.main(["desktop", "install", DESKTOP, "--yes"]) == 0
+        out = capsys.readouterr().out
+        assert "已补齐" in out
+        # 确实执行了 root 启用与 .xsession 补齐
+        joined = [" ".join(c) for c in fake_run_wsl.calls]
+        assert any("systemctl enable --now" in j for j in joined)
+        assert any("OKW_XSESSION_EOF" in j for j in joined)
+
+    def test_install_idempotent_watchdog(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["systemctl enable --now"] = make_result()
+        fake_run_wsl.script["OKW_XSESSION_EOF"] = make_result(stdout="unchanged\n")
+        assert cli.main(["desktop", "install", DESKTOP, "--yes"]) == 0
+        assert "保持不变" in capsys.readouterr().out
+
+    def test_install_systemd_disabled_stops(self, fake_run_wsl, capsys):
+        fake_run_wsl.script["-l -v"] = make_result(stdout=f"* {DESKTOP} Running 2\n")
+        fake_run_wsl.script["os-release"] = make_result(stdout='ID=openkylin\nVERSION="3.0"\n')
+        fake_run_wsl.script["wsl.conf"] = make_result(stdout="[user]\ndefault=openkylin\n")
+        assert cli.main(["desktop", "install", DESKTOP, "--yes"]) == 1
+        assert "systemd" in capsys.readouterr().out
+
+
+# ----------------- CLI：verify -----------------
+
+class TestDesktopVerify:
+    def test_verify_pass(self, fake_run_wsl, monkeypatch, capsys):
+        _prime_ok(fake_run_wsl)
+        monkeypatch.setattr(desktop, "probe_windows_port", lambda port, timeout=2.0: True)
+        assert cli.main(["desktop", "verify", DESKTOP]) == 0
+        assert "验收通过" in capsys.readouterr().out
+
+    def test_verify_windows_port_unreachable(self, fake_run_wsl, monkeypatch, capsys):
+        _prime_ok(fake_run_wsl)
+        monkeypatch.setattr(desktop, "probe_windows_port", lambda port, timeout=2.0: False)
+        assert cli.main(["desktop", "verify", DESKTOP]) == 1
+        assert "不可达" in capsys.readouterr().out
+
+    def test_verify_custom_port_reflected(self, fake_run_wsl, monkeypatch, capsys):
+        _prime_ok(fake_run_wsl)
+        seen = {}
+        monkeypatch.setattr(
+            desktop, "probe_windows_port",
+            lambda port, timeout=2.0: seen.setdefault("port", port) or True,
+        )
+        assert cli.main(["desktop", "verify", DESKTOP, "--port", "3389"]) == 0
+        assert seen["port"] == 3389
+        assert "localhost:3389" in capsys.readouterr().out
+
+
+# ----------------- CLI：launch -----------------
+
+class TestDesktopLaunch:
+    def test_launch_pass_prefills_login_user(self, fake_run_wsl, monkeypatch, capsys):
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["/bin/true"] = make_result()
+        fake_run_wsl.script["id -un"] = make_result(stdout="openkylin\n")
+        monkeypatch.setattr(desktop, "probe_windows_port", lambda port, timeout=2.0: True)
+        seen = {}
+
+        def fake_open(port, username, rdp_dir=None):
+            seen.update(port=port, username=username)
+            return Path("okw-desktop-localhost-3390.rdp")
+
+        monkeypatch.setattr(desktop, "open_mstsc", fake_open)
+        assert cli.main(["desktop", "launch", DESKTOP]) == 0
+        assert seen["port"] == 3390
+        assert seen["username"] == "openkylin"
+        out = capsys.readouterr().out
+        assert "已启动 mstsc" in out and "预填用户名 openkylin" in out
+        assert "已启动并拉起远程桌面" in out
+
+    def test_launch_login_user_probe_fail_still_launches(self, fake_run_wsl, monkeypatch, capsys):
+        # id -un 未注入脚本 → 假 wsl 返回失败；launch 回退契约账号，不阻断
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["/bin/true"] = make_result()
+        monkeypatch.setattr(desktop, "probe_windows_port", lambda port, timeout=2.0: True)
+        seen = {}
+
+        def fake_open(port, username, rdp_dir=None):
+            seen.update(username=username)
+            return Path("okw-desktop-localhost-3390.rdp")
+
+        monkeypatch.setattr(desktop, "open_mstsc", fake_open)
+        assert cli.main(["desktop", "launch", DESKTOP]) == 0
+        assert seen["username"] == desktop.DEFAULT_LOGIN_USER
+
+    def test_launch_structural_fail(self, fake_run_wsl, monkeypatch, capsys):
+        fake_run_wsl.script["-l -v"] = make_result(stdout="  NAME STATE VERSION\n* other Running 2\n")
+        launched = []
+        monkeypatch.setattr(desktop, "open_mstsc", lambda *a, **k: launched.append(a))
+        assert cli.main(["desktop", "launch", DESKTOP]) == 1
+        assert launched == []  # 结构失败不启动、不拉 mstsc
+
+    def test_launch_start_failure(self, fake_run_wsl, monkeypatch, capsys):
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["/bin/true"] = make_result(False, 1, "", "boot boom", "failed")
+        monkeypatch.setattr(desktop, "open_mstsc", lambda *a, **k: None)
+        assert cli.main(["desktop", "launch", DESKTOP]) == 1
+        assert "启动失败" in capsys.readouterr().out
+
+    def test_launch_port_timeout(self, fake_run_wsl, monkeypatch, capsys):
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["/bin/true"] = make_result()
+        monkeypatch.setattr(desktop, "_wait_port", lambda port, wait_seconds, poll_interval: False)
+        monkeypatch.setattr(desktop, "open_mstsc", lambda *a, **k: None)
+        assert cli.main(["desktop", "launch", DESKTOP]) == 1
+        assert "未就绪" in capsys.readouterr().out
+
+    def test_launch_mstsc_failure(self, fake_run_wsl, monkeypatch, capsys):
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["/bin/true"] = make_result()
+        fake_run_wsl.script["id -un"] = make_result(stdout="openkylin\n")
+        monkeypatch.setattr(desktop, "_wait_port", lambda port, wait_seconds, poll_interval: True)
+
+        def boom(*a, **k):
+            raise OSError("no mstsc")
+
+        monkeypatch.setattr(desktop, "open_mstsc", boom)
+        assert cli.main(["desktop", "launch", DESKTOP]) == 1
+        assert "无法启动 mstsc" in capsys.readouterr().out
+
+    def test_wait_port_branches(self, monkeypatch):
+        monkeypatch.setattr(desktop, "probe_windows_port", lambda port, timeout=2.0: True)
+        assert desktop._wait_port(3390, 1.0, 0.01) is True
+        monkeypatch.setattr(desktop, "probe_windows_port", lambda port, timeout=2.0: False)
+        assert desktop._wait_port(3390, 0.02, 0.01) is False
+
+    def test_open_mstsc_writes_rdp_and_spawns_file(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(desktop.subprocess, "Popen", lambda argv: calls.append(argv))
+        path = desktop.open_mstsc(3390, "openkylin", rdp_dir=tmp_path)
+        assert path == tmp_path / "okw-desktop-localhost-3390.rdp"
+        # newline="" 原样读回，锁定 CRLF 契约（mstsc 兼容）
+        text = path.read_text(encoding="utf-8", newline="")
+        assert text == "full address:s:localhost:3390\r\nusername:s:openkylin\r\n"
+        assert calls == [["mstsc", str(path)]]
+
+    def test_open_mstsc_rdp_path_is_deterministic_no_litter(self, tmp_path, monkeypatch):
+        # 固定文件名幂等覆盖：多次 launch 不堆积临时 .rdp
+        monkeypatch.setattr(desktop.subprocess, "Popen", lambda argv: None)
+        p1 = desktop.open_mstsc(3390, "openkylin", rdp_dir=tmp_path)
+        p2 = desktop.open_mstsc(3390, "openkylin", rdp_dir=tmp_path)
+        assert p1 == p2
+        assert list(tmp_path.glob("*.rdp")) == [p1]
+
+
+# ----------------- 分支覆盖：结构/运行时/端口/IP 幂等 -----------------
+
+PROBE_ALL_BAD = "\n".join([
+    "okw_xrdp_bin=no",
+    "okw_xrdp_active=inactive",
+    "okw_sesman_active=unknown",
+    "okw_port_listen=0",
+    "okw_user=root",
+    "okw_uid=0",
+    "okw_xsession=missing",
+]) + "\n"
+
+
+class TestDesktopBranches:
+    def test_structural_wsl_unavailable(self, fake_run_wsl, capsys):
+        fake_run_wsl.script["-l -v"] = make_result(False, 1, "", "wsl boom", "failed")
+        assert cli.main(["desktop", "preflight", DESKTOP]) == 1
+        assert "未注册" in capsys.readouterr().out
+
+    def test_structural_distro_absent(self, fake_run_wsl, capsys):
+        fake_run_wsl.script["-l -v"] = make_result(stdout="  NAME STATE VERSION\n* other Running 2\n")
+        assert cli.main(["desktop", "preflight", DESKTOP]) == 1
+        assert "未注册" in capsys.readouterr().out
+
+    def test_structural_wsl1(self, fake_run_wsl, capsys):
+        fake_run_wsl.script["-l -v"] = make_result(stdout=f"* {DESKTOP} Running 1\n")
+        assert cli.main(["desktop", "preflight", DESKTOP]) == 1
+        assert "WSL2" in capsys.readouterr().out
+
+    def test_structural_os_release_unreadable(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["os-release"] = make_result(False, 1, "", "cat boom", "failed")
+        assert cli.main(["desktop", "preflight", DESKTOP]) == 1
+        assert "os-release" in capsys.readouterr().out
+
+    def test_structural_not_openkylin(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["os-release"] = make_result(stdout='ID=debian\nVERSION="12"\n')
+        assert cli.main(["desktop", "preflight", DESKTOP]) == 1
+        assert "不是 openkylin" in capsys.readouterr().out
+
+    def test_structural_wsl_conf_unreadable(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["wsl.conf"] = make_result(False, 1, "", "cat boom", "failed")
+        assert cli.main(["desktop", "preflight", DESKTOP]) == 1
+        assert "wsl.conf 读取失败" in capsys.readouterr().out
+
+    def test_runtime_probe_no_output(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl, probe="")
+        assert cli.main(["desktop", "preflight", DESKTOP]) == 1
+        assert "探针无输出" in capsys.readouterr().out
+
+    def test_runtime_all_bad_marks_every_fail(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl, probe=PROBE_ALL_BAD)
+        rc = cli.main(["desktop", "preflight", DESKTOP])
+        assert rc == 1
+        out = capsys.readouterr().out
+        for label in ("xrdp 已安装", "xrdp 服务", "xrdp-sesman 服务", "端口 3390 监听", "默认用户 / UID", "首登黑屏看门狗"):
+            assert label in out
+        assert "未找到 xrdp" in out
+        assert "无法判定" in out
+
+    def test_install_enable_failure(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["systemctl enable --now"] = make_result(False, 1, "", "enable boom", "failed")
+        assert cli.main(["desktop", "install", DESKTOP, "--yes"]) == 1
+        assert "systemctl 失败" in capsys.readouterr().out
+
+    def test_install_patch_failure(self, fake_run_wsl, capsys):
+        _prime_ok(fake_run_wsl)
+        fake_run_wsl.script["systemctl enable --now"] = make_result()
+        fake_run_wsl.script["OKW_XSESSION_EOF"] = make_result(False, 1, "", "write boom", "failed")
+        assert cli.main(["desktop", "install", DESKTOP, "--yes"]) == 1
+        assert "写入失败" in capsys.readouterr().out
+
+    def test_verify_stops_on_structural_fail(self, fake_run_wsl, capsys):
+        fake_run_wsl.script["-l -v"] = make_result(stdout="  NAME STATE VERSION\n* other Running 2\n")
+        assert cli.main(["desktop", "verify", DESKTOP]) == 1
+        out = capsys.readouterr().out
+        assert "未注册" in out
+        assert "Windows 侧" not in out  # 结构失败即返回，不进入运行时/端口探测
+
+    def test_fail_evidence_both_branches(self):
+        from okw.distro import CmdResult
+
+        assert "无输出" in desktop._fail_evidence(CmdResult(False, 1, "", "", "failed"))
+        assert "boom" in desktop._fail_evidence(CmdResult(False, 1, "", "boom", "failed"))
+
+    def test_probe_windows_port_closed(self):
+        import socket
+
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        assert desktop.probe_windows_port(port, timeout=0.3) is False
+
+    def test_probe_windows_port_open(self):
+        import socket
+
+        server = socket.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        try:
+            assert desktop.probe_windows_port(port, timeout=1.0) is True
+        finally:
+            server.close()

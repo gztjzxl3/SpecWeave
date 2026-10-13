@@ -71,6 +71,7 @@ defensive-config-cache-deepcopy
 delegated-rendering-risk-governance
 dependency-update-risk-control
 destruction-protection-isolation
+dev-container-image-construction-discipline
 direct-file-write-over-shell-pipe
 directive-state-machine-parsing
 docker-apt-layer-slimming
@@ -126,6 +127,7 @@ idempotent-shell-config
 invocations-collection-sphinx-build-wrapping
 invoke-layered-namespace-tasks
 invoke-task-dual-backend-load
+large-archive-remote-preflight
 layer-override-patch-drift
 lightweight-multi-dimensional-recommender
 markdown-nested-fence-escalation
@@ -220,9 +222,11 @@ wsl-distro-install-migration-guide
 wsl-docker-command-safety
 wsl-docker-gpu-triage
 wsl-docker-storage-cleanup-five-step-method
+wsl-import-memory-triage-sparse-vhd
 wsl-podman-build-bridge
 wsl-windows-path-autoconvert
 wsl2-docker-selection-decision
+xrdp-black-screen-window-manager-triage
 zero-copy-batch-inference-defense
 zero-copy-tensor-verification
 ```

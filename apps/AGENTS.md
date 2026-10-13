@@ -41,8 +41,9 @@ apps/AGENTS.md 由 SpecWeave 主权区维护，直接纳入版本管理；部分
 | 分组 | 应用 | AGENTS.md 入口 | .agents/ | 说明 |
 |------|------|---------------|:---:|------|
 | containers/ | jupyter-podman-rootless | [containers/jupyter-podman-rootless/AGENTS.md](containers/jupyter-podman-rootless/AGENTS.md) | ✅ 有 | 基于Podman rootless的Jupyter开发容器（Python 3.14t + Miniforge3 + SSH + rootless Podman + OMLMD/OLOT + Toolbx透传，invoke管理，三层后端自动降级） |
-| containers/ | client | [containers/client/AGENTS.md](containers/client/AGENTS.md) | ✅ 有 | jupyter-podman-rootless 镜像消费端：基于 podman-py 从本地 tar.gz 加载镜像并管理容器生命周期，供脚本化集成/嵌入调用；含 `env.*` 容器内自举命名空间；含 opt-in `quant.*` podman-compose 工作负载栈命名空间（overlays/onnx-quantized 量化叠加层：build/up/down/ps/logs/smoke，Windows 原生门禁）；含 opt-in `xmnn.*` 开发/打包栈命名空间（overlays/xmnn-dev：build/up/down/ps/logs/smoke/build-tvm/wheel，运行时挂载 npu_tvm/npuusertools 源码，LLVM 22 + Nuitka 打 xmnn whl，同族 Windows 原生门禁）；含 opt-in `monetize.*` tvm-ffi 原生编译栈命名空间（overlays/agent-monetize-dev：build/up/down/ps/logs/smoke/build-native/wheel，apt clang+apache-tvm-ffi 单一 cp314 GIL，挂载 apps/agent-monetize）；含 opt-in `xmnnrt.*` wheel 消费运行时栈命名空间（overlays/xmnn-runtime：build/up/down/ps/logs/smoke，把 xmnn-dev 产出的 whl 装入干净运行时镜像，无工具链零源码挂载，2225/8893，builder/runtime 分离） |
+| containers/ | client | [containers/client/AGENTS.md](containers/client/AGENTS.md) | ✅ 有 | jupyter-podman-rootless 镜像消费端：基于 podman-py 从本地 tar.gz 加载镜像并管理容器生命周期，供脚本化集成/嵌入调用；含 `env.*` 容器内自举命名空间；含 opt-in `quant.*` podman-compose 工作负载栈命名空间（overlays/onnx-quantized 量化叠加层：build/up/down/ps/logs/smoke，Windows 原生门禁）；含 opt-in `native.*` 开发/打包栈命名空间（overlays/native-dev：build/up/down/ps/logs/smoke/build-tvm/wheel，运行时挂载 npu_tvm/npuusertools 源码，LLVM 22 + Nuitka 打 xmnn whl，同族 Windows 原生门禁）；含 opt-in `monetize.*` tvm-ffi 原生编译栈命名空间（overlays/agent-monetize-dev：build/up/down/ps/logs/smoke/build-native/wheel，apt clang+apache-tvm-ffi 单一 cp314 GIL，挂载 apps/agent-monetize）。**共三栈（quant/native/monetize）**；原 `xmnnrt.*` wheel 消费运行时 / 客户离线交付链路已于 2026-09-21 迁出为独立应用 containers/offline-delivery |
 | containers/ | shared | [containers/AGENTS.md](containers/AGENTS.md)（组层代管） | ❌ 无 | 组内共享包 jpman-common 0.1.0（scikit-build-core 纯 Python；podman SDK 连接层唯一事实源 + 平台/进程/容器只读工具，builder/client 共同依赖须先 editable 安装；G1/G2 治理见组层 [.agents/rules/shared-package.md](containers/.agents/rules/shared-package.md)） |
+| containers/ | offline-delivery | [containers/offline-delivery/AGENTS.md](containers/offline-delivery/AGENTS.md) | ✅ 有 | 厂商侧离线交付链路（镜像构建 + 打包 + 冒烟）：消费 `containers/workspace/dist/*.whl` 与基镜像 `localhost/jupyter-podman-rootless:latest`，经零 Python CLI `bin/relpack`（bash 4+ / pwsh 7.4+）产出客户可自持离线交付包（`release/` 骨架 + `artifacts/*.tar.gz` + `release.json`）；多产品分层 `products/<产品>/`，首个产品 xmnn-runtime；不依赖 client/shared |
 | docker-images/ | devcontainer-base | [docker-images/devcontainer-base/AGENTS.md](docker-images/devcontainer-base/AGENTS.md) | ❌ 无 | 全功能开发容器（Ubuntu 26.04，SSH+Docker DinD/DooD+Podman+Jupyter，supervisord管理，Python 3.14 cp314t free-threading） |
 | docker-images/ | devcontainer-win11 | [docker-images/devcontainer-win11/AGENTS.md](docker-images/devcontainer-win11/AGENTS.md) | ✅ 有 | Windows 11 开发容器（Server Core 2022，SSH+Docker DooD+Jupyter，PowerShell管理，Python 3.14 cp314t free-threading） |
 | docker-images/ | docker-ssh-dind | [docker-images/docker-ssh-dind/AGENTS.md](docker-images/docker-ssh-dind/AGENTS.md) | ✅ 有 | Docker SSH DinD（Docker-in-Docker）环境 |
@@ -57,10 +58,22 @@ apps/AGENTS.md 由 SpecWeave 主权区维护，直接纳入版本管理；部分
 | ai-agents/ | ai-code-assistant | —（遵循根规范） | ❌ 无 | AI 代码助手 Web 应用 |
 | dev-tools/ | camera-power-controller | —（遵循根规范） | ❌ 无 | 摄像头电源控制工具 |
 | dev-tools/ | prompt_extraction | —（遵循根规范） | ❌ 无 | 提示词质量评估与提取工具 |
+| dev-tools/ | wechat-mp-archiver | [dev-tools/wechat-mp-archiver/AGENTS.md](dev-tools/wechat-mp-archiver/AGENTS.md) | ✅ 有 | 微信公众号全量内容归档工具（私有部署采集服务 + Python 薄管线，输出离线归档/RAG 语料/分析报表；scikit-build-core 纯 Python 包，`mp-archiver` CLI）；应用自治：1 rule（archive-pipeline 归档管线硬约束）+ 6 docs |
+| dev-tools/ | zhihu-checkin-hub | —（遵循根规范） | ❌ 无 | 知乎打卡工作台（本地 FastAPI Web：目标追踪/每日打卡/tracker.md 勾选回写 + 发布前固定门 + kimi-webbridge 半自动发布（最终发布人点）；零数据库、无 AI、无凭证、仅 loopback，数据只写 `projects/monetize/zhihu-monetization/local/`；scikit-build-core 纯 Python 包，`zhihu-checkin` CLI，规格 `.trae/specs/zhihu-checkin-hub/`） |
+| dev-tools/ | openkylin-wsl-devkit | —（遵循根规范） | ❌ 无 | openKylin WSL 开发工具包（以 WSL 为切入点：发行版生命周期管理 list/status/import/export/unregister/exec + 五步环境验收 verify + deb 打包骨架/OKBS dput 脚手架 + 知识库快速参考 ref + rootless Podman 只读预检/幂等安装/rootless 验收 podman preflight/install/verify（--smoke-image 禁隐式拉取）+ AI 栈本地离线 OCR ai preflight/install/verify（仅已验证 tesseract 路径，--smoke-ocr 离线识别，不碰密钥/模型/ollama/Gen2 全栈）+ 桌面 UKUI（xrdp/WSL）desktop launch/preflight/install/verify（launch 启动发行版→等端口→拉起 mstsc；install 需 --yes 且仅作用于已预装桌面镜像，补齐 ~/.xsession 看门狗；verify 附加 Windows 侧回环端口）；零第三方运行时依赖，scikit-build-core 纯 Python 包，`okw` CLI，规格 `.trae/specs/openkylin-wsl-devkit/`、`.trae/specs/infra-env/extend-okw-openkylin-podman/`、`.trae/specs/infra-env/extend-okw-openkylin-ai/` 与 `.trae/specs/infra-env/extend-okw-openkylin-desktop/`，知识依据 `docs/knowledge/tech/openkylin-docs-wiki/`） |
+| dev-tools/ | agent-workspace-starter | —（遵循根规范） | ❌ 无 | 智能体工作区起步套件（对外运营产品）：最小化 .agents 萃取（40 文件全貌导览）+ 60 分钟时间盒教程 + 规格驱动演练剧本 + 零依赖自检脚本 + 装载门面；规格 `.trae/specs/workspace-governance/create-agent-workspace-starter/` |
 | samples/ | cow-demo | —（遵循根规范） | ❌ 无 | 零拷贝COW读写分离模式C++示例框架 |
 | samples/ | short-video-site | —（遵循根规范） | ❌ 无 | ReelVibe 短视频网站（AI全流程开发Demo） |
+| samples/ | designer-portfolio | —（遵循根规范） | ❌ 无 | 设计师作品集静态网站（纯HTML/CSS/JS + GSAP CDN，零构建Demo，首页+4个项目详情页） |
+| samples/ | dao-survival-guide | —（遵循根规范） | ❌ 无 | 大道极简生存指南（七条判据）交互应用：纯HTML/CSS/JS 零构建，判牍式七问盖印 + 分层判状 + 最短版本表；源 `projects/awesome-okf-xs/doc/bundles/guoxue/laozi/dao-san-triads/concepts/04-survival-guide.md` |
+| samples/ | maitian-bakehouse | —（遵循根规范） | ❌ 无 | 麦田烘焙 · 烘焙工作室展示网页：纯HTML/CSS/JS 零构建静态落地页（首屏大图 + 6 款招牌产品卡片 + 品牌故事 + 3 条顾客好评 + 联系地址/地图占位；手写体标题 + 奶油棕配色 + 内联 SVG 插画占位） |
+| samples/ | mobile-design-tokens | —（遵循根规范） | ❌ 无 | 移动端 Design Token 工作台（纯HTML/CSS/JS 零构建；由 Ardot 设计稿生成，Primitives→Semantic 两层 Token + Light/Dark/跟随系统三态换肤，含搜索/复制/导出；Token 真源 `styles/tokens.css`，数据源 `scripts/tokens.js`） |
 | samples/ | zleap-workspace-first-prototype | —（遵循根规范） | ❌ 无 | 工作区首个原型（多模型路由） |
 | samples/ | serial-camera-controller | —（遵循根规范） | ❌ 无 | 串口控制USB摄像头抓图/录像（CH340+OpenCV+pyserial，双协议三线程架构） |
+| 根级 | inurl-byok-token-hub | —（遵循根规范） | ❌ 无 | BYOK 统一令牌枢纽复刻（源：`projects/awesome-okf-xs/doc/bundles/jishu/ai/products/inurl-byok-token-hub`）：E2EE 密钥保险库（PBKDF2+AES-GCM 双 escrow）+ 逻辑别名路由（19 策略 + `>` Combo）+ 5 档上下文压缩 + 三协议本地代理（OpenAI 兼容 / Anthropic / Gemini）+ 健康熔断与用量计费；仅监听 127.0.0.1，scikit-build-core 纯 Python 包，`inurl-byok-token-hub` CLI，规格 `.trae/specs/inurl-byok-token-hub/` |
+| 根级 | travel-planner | —（遵循根规范） | ❌ 无 | 旅行规划工作台（本地 FastAPI Web：多行程管理 + 每日编排（六类条目/时间/费用/勾选）+ 预算分类汇总 + 打包清单 + JSON 导入导出 + BYOK AI 行程草稿（OpenAI 兼容端点，白名单 schema 校验 + 预览确认导入）；零数据库、仅监听 127.0.0.1，CSRF + Origin 校验 + 单实例文件锁，原子写 + 滚动备份，运行时数据落 playground/travel-planner/data/；scikit-build-core 纯 Python 包，`travel-planner` CLI，规格 `.trae/specs/travel-planner/`） |
+| 根级 | guard-quality-life-site | —（遵循根规范） | ❌ 无 | 《守护品质生活》生活方式方案库可变现 MVP 网站（Python 3.14+ / FastAPI 动态 Web：11 域知识树按域浏览/搜索 + 订阅兴趣登记 + 推荐位占位 + 访问埋点三验证信号；暖灰纸感 UI；scikit-build-core 纯 Python 包 `gqlsite`，pytest 37 用例全绿/覆盖 96%；知识本源 `projects/awesome-okf-xs/doc/bundles/sheke/personal-growth/guard-quality-life/`，规格 `.trae/specs/okf-wiki-ecosystem/guard-quality-life-okf-wiki-site/`） |
+| 根级 | coach-moments-growth | —（遵循根规范） | ❌ 无 | 商业教练朋友圈 AI 增长系统（私域内容运营方案：定位/内容/转化/度量/合规五模块，含可直接调用的 AI 提示词与五大品类文案模板；规格 `.trae/specs/coach-moments-growth/`） |
 | 根级 | shared | —（遵循根规范） | ❌ 无 | 跨应用共享资源目录 |
 | 根级 | tests | —（遵循根规范） | ❌ 无 | 测试用例目录 |
 
@@ -70,12 +83,14 @@ apps/AGENTS.md 由 SpecWeave 主权区维护，直接纳入版本管理；部分
 SpecWeave 根 AGENTS.md
   └─ apps/AGENTS.md（本文件，apps 区域入口）
        ├─ containers/（Podman容器镜像类分组 · 组层入口 containers/AGENTS.md）
-       │    ├─ AGENTS.md（containers 组级路由：builder/client/shared 三角 + G1-G4 跨成员契约）
+       │    ├─ AGENTS.md（containers 组级路由：builder/client/shared/offline-delivery 四成员 + G1-G4 跨成员契约）
        │    │    └─ .agents/rules/shared-package.md（jpman_common 共享包治理）+ docs/（00-overview / 01-getting-started）
        │    ├─ jupyter-podman-rootless/AGENTS.md（jupyter-podman-rootless 构建端入口 · 嵌套优先 · rootless Podman + conda + invoke + OMLMD/OLOT + Toolbx）
        │    │    └─ .agents/rules/（containerfile/entrypoint/services/compose/invoke-tasks/ml-models/build-test 7个规范文件）
        │    │    └─ docs/（18个人类可读文档）
-       │    ├─ client/AGENTS.md（jupyter-podman-rootless 镜像消费端 · podman-py SDK 优先 · invoke load/run/stop/status/clean · env.* 容器内自举 · quant/xmnn/monetize/xmnnrt 四栈）
+       │    ├─ client/AGENTS.md（jupyter-podman-rootless 镜像消费端 · podman-py SDK 优先 · invoke load/run/stop/status/clean · env.* 容器内自举 · quant/native/monetize 三栈）
+       │    ├─ offline-delivery/AGENTS.md（厂商侧离线交付链路入口 · 嵌套优先 · bin/relpack 零 Python CLI · products/<产品>/ 多产品分层 · 客户 release/ 交付骨架）
+       │    │    └─ .agents/rules/delivery-pipeline.md（离线交付流水线硬约束 8 项）+ docs/（3 篇）
        │    └─ shared（组内共享包 jpman-common，无独立 AGENTS，由组层 AGENTS + .agents/rules/shared-package.md 代管）
        └─ docker-images/（Docker容器镜像类分组）
             ├─ devcontainer-base/AGENTS.md（devcontainer-base 应用入口 · 嵌套优先）
@@ -87,6 +102,10 @@ SpecWeave 根 AGENTS.md
        └─ ai-agents/（AI 应用类分组）
             ├─ zhujian-wudao/AGENTS.md（zhujian-wudao 应用入口 · 嵌套优先）
             └─ boss-manual/AGENTS.md（boss-manual 应用入口 · 嵌套优先 · persona 人格资产 + .agents/rules/sync-protocol.md 增量同步协议）
+       └─ dev-tools/（开发工具类分组）
+            └─ wechat-mp-archiver/AGENTS.md（wechat-mp-archiver 应用入口 · 嵌套优先 · 归档管线硬约束）
+                 ├─ .agents/rules/archive-pipeline.md（唯一规则：限速/回环绑定/凭证/幂等续跑/熔断矩阵/结构感知风控/退出码/官方接口/派生产物/合规）
+                 └─ docs/（6 篇原子文档 + 索引：00-overview / 01-quickstart / 02-commands / 03-operations / 04-storage-and-layout / 05-compliance）
 ```
 
 进入任意子目录后，优先读取**离当前工作目录最近**的 AGENTS.md。若应用自身的 AGENTS.md 规则与本文件冲突，以应用的 AGENTS.md 为准（子层覆盖父层）。无自身 AGENTS.md 的应用直接遵循根 .agents/ 规范。
@@ -104,7 +123,7 @@ flowchart TD
     Layer2 --> SubApp{"步骤2：按应用路由表<br/>确定目标应用"}
     SubApp -.->|"❶ 无匹配项"| E1["确认是否为新增应用<br/>走新增应用流程"]
     E1 -.-> Layer2
-    SubApp -->|"有自身 AGENTS.md<br/>（client/devcontainer-base/devcontainer-win11/docker-ssh-dind/<br/>jupyter-ssh-base/pytorch-base/caffe-ffi-jupyter/zhujian-wudao）"| Layer3["第三层：读取应用自身 AGENTS.md<br/>（嵌套优先）"]
+    SubApp -->|"有自身 AGENTS.md<br/>（client/offline-delivery/devcontainer-base/devcontainer-win11/docker-ssh-dind/<br/>jupyter-ssh-base/pytorch-base/caffe-ffi-jupyter/zhujian-wudao/wechat-mp-archiver）"| Layer3["第三层：读取应用自身 AGENTS.md<br/>（嵌套优先）"]
     SubApp -->|"无自身 AGENTS.md<br/>（ai-code-assistant/camera-power-controller/<br/>prompt_extraction/shared/tests/xmnn-runtime）"| Direct["直接遵循根 .agents/ 规范"]
     Layer3 -.->|"❷ 读取失败"| E2["检查文件是否存在<br/>回退到根规范执行"]
     E2 -.-> Direct
@@ -210,6 +229,16 @@ apps 区域内有 `.agents/` 目录的应用，其规范资产可被跨应用调
 | 可迁移方法 | [ai-agents/zhujian-wudao/.agents/docs/knowledge-transfer/2026-06-17-transferable-methods.md](ai-agents/zhujian-wudao/.agents/docs/knowledge-transfer/2026-06-17-transferable-methods.md) | 可迁移方法论 |
 | 可迁移模式 | [ai-agents/zhujian-wudao/.agents/docs/knowledge-transfer/2026-06-17-transferable-patterns.md](ai-agents/zhujian-wudao/.agents/docs/knowledge-transfer/2026-06-17-transferable-patterns.md) | 可复用设计模式 |
 
+### wechat-mp-archiver 应用（dev-tools/分组）
+
+| 资产 | 路径 | 说明 |
+|------|------|------|
+| 应用入口 | [dev-tools/wechat-mp-archiver/AGENTS.md](dev-tools/wechat-mp-archiver/AGENTS.md) | 应用级路由入口（启动协议 + 上下文路由表 + 10 项 P0 约束速览） |
+| 入门指南 | [dev-tools/wechat-mp-archiver/.agents/README.md](dev-tools/wechat-mp-archiver/.agents/README.md) | .agents/ 资产索引 + 核心资产真源 + 父级回退链 |
+| 归档管线规则 | [dev-tools/wechat-mp-archiver/.agents/rules/archive-pipeline.md](dev-tools/wechat-mp-archiver/.agents/rules/archive-pipeline.md) | 唯一规则主题：限速不可下调 / 回环绑定 / 凭证治理 / 幂等续跑 / 熔断矩阵 / 结构感知风控 / 退出码契约 / 官方接口边界 / 派生产物 / 合规落地（§1-§10） |
+| 变更日志 | [dev-tools/wechat-mp-archiver/.agents/CHANGELOG.md](dev-tools/wechat-mp-archiver/.agents/CHANGELOG.md) | wechat-mp-archiver 应用变更记录 |
+| 人类可读文档 | [dev-tools/wechat-mp-archiver/docs/README.md](dev-tools/wechat-mp-archiver/docs/README.md) | 文档索引（定位/快速开始/命令/运维/存储/合规 6 篇） |
+
 ## 边界声明
 
 | 资产 | 归属 | 可直接修改 | 说明 |
@@ -219,19 +248,21 @@ apps 区域内有 `.agents/` 目录的应用，其规范资产可被跨应用调
 | apps/shared/ | SpecWeave 主权区 | ✅ 是 | 跨应用共享资源 |
 | apps/tests/ | SpecWeave 主权区 | ✅ 是 | 全局测试用例 |
 | apps/docker-images/ | SpecWeave 主权区 | ✅ 是 | 容器镜像类应用分组（Docker/DinD） |
-| apps/containers/ | SpecWeave 主权区 | ✅ 是 | 容器镜像类应用分组（Podman rootless；jupyter-podman-rootless/client/shared 三成员，组层 AGENTS.md 路由 + G1-G4 跨成员契约） |
-| apps/containers/AGENTS.md | SpecWeave 主权区 | ✅ 是 | containers 组级路由入口（三成员路由表、shared 代管、G1-G4 契约） |
+| apps/containers/ | SpecWeave 主权区 | ✅ 是 | 容器镜像类应用分组（Podman rootless；jupyter-podman-rootless/client/shared/offline-delivery 四成员，组层 AGENTS.md 路由 + G1-G4 跨成员契约） |
+| apps/containers/AGENTS.md | SpecWeave 主权区 | ✅ 是 | containers 组级路由入口（四成员路由表、shared 代管、G1-G4 契约） |
 | apps/containers/shared/ | SpecWeave 主权区 | ✅ 是 | 组内共享包 jpman-common（连接层+只读工具；无独立 AGENTS，组层代管） |
+| apps/containers/offline-delivery/ | 应用自治（有自身 AGENTS.md） | ✅ 是 | 厂商侧离线交付链路（镜像构建 + 打包 + 冒烟）：零 Python CLI `bin/relpack` + 多产品分层 `products/<产品>/`，产出客户 `release/` 交付骨架与 `artifacts/*.tar.gz`；不依赖 client/shared |
 | apps/ai-agents/ | SpecWeave 主权区 | ✅ 是 | AI 应用类分组 |
 | apps/dev-tools/ | SpecWeave 主权区 | ✅ 是 | 开发工具类分组 |
+| apps/coach-moments-growth/ | 应用自治（遵循根规范） | ✅ 是 | 商业教练朋友圈 AI 增长系统（根级独立应用；AI 生成朋友圈内容 + 转化漏斗 + 数据追踪 + 合规保障；规格 `.trae/specs/coach-moments-growth/`） |
 | apps/samples/ | SpecWeave 主权区 | ✅ 是 | 示例/原型类分组 |
 | apps/containers/jupyter-podman-rootless/ | 应用自治（有自身 AGENTS.md） | ✅ 是 | Podman rootless Jupyter开发容器（Python 3.14t + Miniforge3 + SSH + rootless Podman + OMLMD/OLOT + Toolbx透传，invoke管理，三层后端自动降级） |
 | apps/containers/jupyter-podman-rootless/AGENTS.md | 应用自治 | ✅ 是 | jupyter-podman-rootless 入口 |
 | apps/containers/jupyter-podman-rootless/.agents/ | 应用自治 | ✅ 是 | jupyter-podman-rootless 规范体系（7个rules文件：containerfile/entrypoint/services/compose/invoke-tasks/ml-models/build-test） |
 | apps/containers/jupyter-podman-rootless/docs/ | 应用自治 | ✅ 是 | jupyter-podman-rootless 人类可读文档（18个原子化文档+索引） |
-| apps/containers/client/ | 应用自治（有自身 AGENTS.md） | ✅ 是 | jupyter-podman-rootless 镜像消费端：podman-py 加载 tar.gz、invoke load/run/stop/status/clean 命令、SDK 优先 CLI fallback、rootless 三必需参数内置；含 `env.*` 容器内自举命名空间；含 opt-in `quant.*` podman-compose 工作负载栈（onnx-quantized 量化叠加层）；含 opt-in `xmnn.*` 开发/打包栈（overlays/xmnn-dev，源码挂载调试 + Nuitka 打 xmnn whl） |
+| apps/containers/client/ | 应用自治（有自身 AGENTS.md） | ✅ 是 | jupyter-podman-rootless 镜像消费端：podman-py 加载 tar.gz、invoke load/run/stop/status/clean 命令、SDK 优先 CLI fallback、rootless 三必需参数内置；含 `env.*` 容器内自举命名空间；含 opt-in `quant.*` podman-compose 工作负载栈（onnx-quantized 量化叠加层）；含 opt-in `native.*` 开发/打包栈（overlays/native-dev，源码挂载调试 + Nuitka 打 xmnn whl） |
 | apps/containers/client/AGENTS.md | 应用自治 | ✅ 是 | client 入口 |
-| apps/containers/client/.agents/ | 应用自治 | ✅ 是 | client 规范体系（invoke-tasks/sdk-connection/windows-wsl/quant-overlay/xmnn-overlay 5个rules文件） |
+| apps/containers/client/.agents/ | 应用自治 | ✅ 是 | client 规范体系（invoke-tasks/sdk-connection/windows-wsl/quant-overlay/native-overlay/monetize-overlay 6个rules文件） |
 | apps/docker-images/devcontainer-base/ | 应用自治（有自身 AGENTS.md） | ✅ 是 | 全功能开发容器（Ubuntu，SSH+Docker+Podman+Jupyter，supervisord管理） |
 | apps/docker-images/devcontainer-base/AGENTS.md | 应用自治 | ✅ 是 | devcontainer-base 入口 |
 | apps/docker-images/devcontainer-win11/ | 应用自治（有自身 AGENTS.md） | ✅ 是 | Windows 11 开发容器（Server Core 2022，SSH+Docker DooD+Jupyter，PowerShell管理，Python 3.14 cp314t free-threading） |
@@ -248,6 +279,8 @@ apps 区域内有 `.agents/` 目录的应用，其规范资产可被跨应用调
 | apps/docker-images/caffe-ffi-jupyter/AGENTS.md | 应用自治 | ✅ 是 | caffe-ffi-jupyter 入口 |
 | apps/docker-images/caffe-ffi-cross/ | 应用自治（遵循根规范） | ✅ 是 | Caffe-FFI 交叉编译 |
 | apps/docker-images/xmnn-runtime/ | 应用自治（遵循根规范） | ✅ 是 | XMNN 运行时环境 |
+| apps/inurl-byok-token-hub/ | 应用自治（遵循根规范） | ✅ 是 | BYOK 统一令牌枢纽复刻（E2EE 密钥保险库 + 19 策略别名路由 + 5 档压缩 + 三协议本地代理 + 健康熔断/用量计费；仅回环监听、单实例文件锁、落盘无明文密钥；规格 `.trae/specs/inurl-byok-token-hub/`） |
+| apps/travel-planner/ | 应用自治（遵循根规范） | ✅ 是 | 旅行规划工作台（多行程编排/预算/打包清单/导入导出 + BYOK AI 行程草稿；零数据库、仅回环监听、CSRF+Origin+单实例锁、原子写+滚动备份；运行时数据只写 playground/travel-planner/data/；规格 `.trae/specs/travel-planner/`） |
 | apps/ai-agents/zhujian-wudao/ | 应用自治（有自身 AGENTS.md） | ✅ 是 | 竹简悟道项目 |
 | apps/ai-agents/zhujian-wudao/AGENTS.md | 应用自治 | ✅ 是 | zhujian-wudao 入口 |
 | apps/ai-agents/zhujian-wudao/.agents/ | 应用自治 | ✅ 是 | zhujian-wudao 规范体系 |
@@ -258,8 +291,19 @@ apps 区域内有 `.agents/` 目录的应用，其规范资产可被跨应用调
 | apps/ai-agents/eve-minimal-agent/ | 应用自治（遵循根规范） | ✅ 是 | Vercel Eve 最小可运行 Agent 示例 |
 | apps/dev-tools/camera-power-controller/ | 应用自治（遵循根规范） | ✅ 是 | 摄像头电源控制工具 |
 | apps/dev-tools/prompt_extraction/ | 应用自治（遵循根规范） | ✅ 是 | 提示词提取工具 |
+| apps/dev-tools/wechat-mp-archiver/ | 应用自治（有自身 AGENTS.md） | ✅ 是 | 微信公众号全量内容归档工具（采集适配器分层 + SQLite 五表状态机 + 保守限速；规格见 `.trae/specs/wechat-mp-content-archiver/`，方案见 `docs/knowledge/operations/wechat-mp-full-archive-solution.md`） |
+| apps/dev-tools/wechat-mp-archiver/AGENTS.md | 应用自治 | ✅ 是 | wechat-mp-archiver 入口 |
+| apps/dev-tools/wechat-mp-archiver/.agents/ | 应用自治 | ✅ 是 | wechat-mp-archiver 规范体系（1个rules文件：archive-pipeline） |
+| apps/dev-tools/wechat-mp-archiver/docs/ | 应用自治 | ✅ 是 | wechat-mp-archiver 人类可读文档（6个原子化文档+索引） |
+| apps/dev-tools/zhihu-checkin-hub/ | 应用自治（遵循根规范） | ✅ 是 | 知乎打卡工作台（FastAPI + Jinja2 本地 Web；tracker/打卡/记录/草稿/固定门/半自动发布；零数据库，运行时数据只写工作区 `local/`；无 AI 生成、无账号凭证、仅监听 127.0.0.1，CSRF + Origin 白名单 + 单实例文件锁；规格 `.trae/specs/zhihu-checkin-hub/`） |
+| apps/dev-tools/openkylin-wsl-devkit/ | 应用自治（遵循根规范） | ✅ 是 | openKylin WSL 开发工具包（`okw` CLI：WSL 发行版管理 + 五步验收 + deb/dput 脚手架 + 知识库参考 + rootless Podman 预检/安装/验收（install 需 --yes，verify 默认只读、--smoke-image 固定 --pull=never）+ AI 栈本地离线 OCR 预检/安装/验收（ai install 需 --yes，verify --smoke-ocr 仅本地图片，不碰密钥/模型/ollama/Gen2）+ 桌面 UKUI（xrdp/WSL）启动/预检/补齐/验收（desktop launch 启动发行版→等端口→拉起 mstsc；install 需 --yes 且仅作用于已预装桌面镜像、补齐 ~/.xsession 看门狗，不装桌面套件/不改源/不改 wsl.conf，verify 附加 Windows 侧回环端口）；零第三方运行时依赖，WSL 调用统一封装、默认星标保护、unregister 二次确认；规格 `.trae/specs/openkylin-wsl-devkit/`、`.trae/specs/infra-env/extend-okw-openkylin-podman/`、`.trae/specs/infra-env/extend-okw-openkylin-ai/`、`.trae/specs/infra-env/extend-okw-openkylin-desktop/`） |
+| apps/dev-tools/agent-workspace-starter/ | 应用自治（遵循根规范） | ✅ 是 | 智能体工作区起步套件（对外运营 · 9.9 元 / 60 分钟上手：starter 最小化套件 40 文件 + 教程 + 演练 + 自检脚本 + 装载门面；许可见 starter/LICENSE-NOTICE.md；规格 `.trae/specs/workspace-governance/create-agent-workspace-starter/`） |
 | apps/samples/cow-demo/ | 应用自治（遵循根规范） | ✅ 是 | 零拷贝COW读写分离模式C++示例框架 |
 | apps/samples/short-video-site/ | 应用自治（遵循根规范） | ✅ 是 | ReelVibe 短视频网站（AI全流程开发Demo） |
+| apps/samples/designer-portfolio/ | 应用自治（遵循根规范） | ✅ 是 | 设计师作品集静态网站（纯HTML/CSS/JS + GSAP CDN，零构建Demo，首页+4个项目详情页） |
+| apps/samples/mobile-design-tokens/ | 应用自治（遵循根规范） | ✅ 是 | 移动端 Design Token 工作台（零构建：index.html + styles/tokens.css（Token 真源）+ styles/app.css + scripts/tokens.js（数据源）+ scripts/app.js；明暗 Mode 切换、搜索、复制、导出） |
+| apps/samples/dao-survival-guide/ | 应用自治（遵循根规范） | ✅ 是 | 大道极简生存指南（七条判据）交互应用（零构建：index.html + styles.css + app.js；判牍式七问盖印 + 分层判状 + 最短版本表；源 `projects/awesome-okf-xs/doc/bundles/guoxue/laozi/dao-san-triads/concepts/04-survival-guide.md`） |
+| apps/samples/maitian-bakehouse/ | 应用自治（遵循根规范） | ✅ 是 | 麦田烘焙 · 烘焙工作室展示网页（零构建：index.html + styles.css + script.js + README.md；温馨文艺落地页，首屏大图/招牌产品/品牌故事/顾客好评/联系地址，手写体标题 + 奶油棕配色 + 内联 SVG 插画占位） |
 | apps/samples/zleap-workspace-first-prototype/ | 应用自治（遵循根规范） | ✅ 是 | 工作区首个原型（多模型路由） |
 | apps/samples/serial-camera-controller/ | 应用自治（遵循根规范） | ✅ 是 | 串口控制USB摄像头抓图/录像（CH340+OpenCV+pyserial，双协议三线程架构） |
 
@@ -314,3 +358,5 @@ mkdir apps/<new-app>/.agents
 - [projects/AGENTS.md](../projects/AGENTS.md) — projects 区域入口路由（git submodule 第一方子项目）
 - [vendor/AGENTS.md](../vendor/AGENTS.md) — vendor 区域入口路由（git submodule 第三方依赖）
 - [apps/README.md](README.md) — apps 目录总览
+
+> AI生成

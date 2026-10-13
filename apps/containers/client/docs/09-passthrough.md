@@ -119,3 +119,49 @@ machine 重启后需重新 attach。
 > 精确指定。配合 `--usb`（USB 总线级）即可在容器内用 v4l2/OpenCV 直接采集摄像头。
 > 前置：先完成上方 usbipd bind/attach 使摄像头在 daemon 宿主出现 `/dev/video*`；
 > 缺失时 podman 硬失败（exit 125），走 C-I3 诊断。
+
+## 声明式栈侧等价：`native.up --passthrough / --gui / --usb`
+
+native-dev 栈（podman-compose 编排）以**分层覆盖文件**对齐同一套透传，与上表
+①②④⑤逐项对应（默认全关，不带开关时渲染/运行与旧版本逐字等价）：
+
+| `invoke run` 开关 | native 栈用法 | 覆盖文件（overlays/native-dev） |
+|---|---|---|
+| `--host-network` + `--dbus` | `invoke native.up --passthrough` | `compose.passthrough.yaml`（host 网络 + D-Bus） |
+| `--wayland` | `invoke native.up --gui`（**超集**：Wayland + X11 unix 按探测加载） | `compose.passthrough.gui.yaml`（+ 命中 X11 unix 时追加 `compose.passthrough.gui.x11.yaml`） |
+| （根路径无对应） | `invoke native.up --passthrough --gui`（SSH 远程 `ssh -X` 的 X11/TCP 转发） | 命中 loopback `127.0.0.1:60<n>` 且 cookie 可抽取时追加 `compose.passthrough.gui.x11.tcp.yaml`（**仅 host 形态**） |
+| `--usb` | `invoke native.up --usb` | `compose.passthrough.usb.yaml`（追加 `/dev/bus/usb`） |
+
+与 SDK 路径的差异（均为栈编排内生）：
+
+- **host 形态端口固定**：Jupyter 8888（容器内固定，bridge 形态的 8890 不再使用）、
+  SSH 默认 2223 可用 `HOST_NET_SSHD_PORT` 换；`ports` 以 `!reset` 整键删除
+  （host 网络与 `-p` 互斥）。故透传形态与占着 8888 的栈（如 quant）**不可并行**。
+- **D-Bus bind**：`/run/user/1000/bus` → `/tmp/runtime-user/bus`（只读、源缺失绝不
+  自动创建），并注入 `XDG_RUNTIME_DIR` / `DBUS_SESSION_BUS_ADDRESS`；
+  `DBUS_SESSION_BUS_PATH` 可改指系统总线 `/run/dbus/system_bus_socket`。
+- **透传专用镜像 tag**：`NATIVE_PASSTHROUGH_IMAGE_TAG`（默认
+  `localhost/native-dev:passthrough`）——内容与基础 tag 完全相同，本地缺失时
+  自动 `podman tag`（同镜像 ID、零额外空间、零构建）。
+- **门禁先于任何 down/up**：与 `invoke run` 的事后翻译不同，栈路径在 daemon 宿主侧
+  预先 `test -S`（D-Bus socket、GUI Wayland/X11 socket）、`ss -lnt`
+  （8888/SSH 占用）、`test -e`（USB 路径），不满足即 Exit(1) 给中文可执行指引
+  （USB 缺失给 usbipd-win 转发 `podman-machine-default` 的三条命令；GUI 两通道
+  皆缺给 WSLg/物理机三分支指引），绝不先拆用户在用的栈。
+- **`--gui` 是根 `--wayland` 的超集**：根路径只挂 Wayland 单 socket；栈侧门禁
+  在 daemon 宿主额外探测 X11（WSLg 下 XWayland 与 Wayland 恒共存），命中即
+  追加 `compose.passthrough.gui.x11.yaml`（挂 socket 目录 + `DISPLAY`）。
+  `--gui` 在 **bridge 形态即可用**（不走 host 网络，Jupyter 保持 8890），
+  物理 Linux X11 需宿主 `xhost local:root`。
+- **SSH 远程 X11/TCP（`ssh -X`，第三形态）**：无本地桌面的会话只有 sshd 在
+  宿主 loopback 的 `127.0.0.1:60<n>` 转发，unix socket 不存在；该端口 bridge
+  容器不可路由，故须 `--passthrough --gui`。门禁只接受 loopback 目标
+  （`GUI_X11_TCP_DISPLAY` 可改指），并把 `~/.Xauthority` 中该显示号的 cookie
+  重编码为 FamilyWild 单条文件注入（`GUI_XAUTHORITY_FILE` 可覆盖）；TCP 可连
+  不等于 X 可用，失效会话会在诊断中列出活跃 60xx 并提示重新 `ssh -X`。
+  会话目录按 `$XDG_RUNTIME_DIR → /run/user/$(id -u)` 动态推导（不写死 1000）。
+- `--passthrough` / `--gui` / `--usb` 三者可任意并用，亦可与 `--gpu` /
+  `--offline` 自由组合；`native.smoke --passthrough/--gui/--usb` 仅在栈运行
+  路径生效（与启动同源文件），栈未运行时显式提示旗标被忽略。
+  详见 [11-native-overlay.md](11-native-overlay.md) 与栈内
+  [07 透传与组合指南](../overlays/native-dev/docs/07-passthrough-and-combos.md)。

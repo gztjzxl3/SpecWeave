@@ -1,8 +1,7 @@
 ---
 source: "镜像自 Trae IDE builtin（源镜像已清理，原路径 skills/asr/SKILL.md）"
 name: asr
-description: "Transcribe audio files to text using local speech recognition. Triggers on:
-\"转录\", \"transcribe\", \"语音转文字\", \"ASR\", \"识别音频\", \"把这段音频转成文字\"."
+description: "Transcribe audio files to text using local speech recognition. Triggers on: \"转录\", \"transcribe\", \"语音转文字\", \"ASR\", \"识别音频\", \"把这段音频转成文字\"."
 ---
 
 

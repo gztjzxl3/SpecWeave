@@ -7,7 +7,7 @@ overlay_core.make_stack_tasks 工厂生成，栈内 exec 长任务（build-nativ
 驱动 ``overlays/agent-monetize-dev`` 叠加栈：栈内 clang++ 编译 tvm-ffi 原生
 模块（score_opportunity.so，链接 apache-tvm-ffi）与 setuptools 打纯 Python
 wheel；apache-tvm-ffi wheel 为 cp314 GIL，编译/运行/内核解释器统一 base env
-（/opt/conda/bin/python，单 ABI；与 xmnn 双 ABI 不同）。
+（/opt/conda/bin/python，单 ABI；与 native 双 ABI 不同）。
 
 定位（红线）：
   - 本模块**禁止 import podman**，只通过子进程驱动 podman-compose；
@@ -54,11 +54,12 @@ MONETIZE_SPEC = StackSpec(
         logs="跟踪 agent-monetize-dev 栈服务日志（Ctrl+C 退出，不影响容器运行）。",
         smoke="运行 agent-monetize 冒烟：工具链守卫（始终）+ 原生/挂载冒烟（栈运行时）。",
     ),
-    down_volumes_help="同时删除栈命名卷（默认保留以加速重复运行）",
+    down_volumes_help="同时删除 monetize-userlocal / monetize-jupyter / monetize-ssh-host-keys 命名卷（默认保留：pip --user 安装包 + Jupyter 登录态 + SSH 主机指纹）",
     ssh_default="2224",
     jupyter_default="8892",
     gpu_override=False,
     conda_mirror=False,
+    apt_mirror=True,
     auto_shortflags=False,
     source_mounts=(
         SourceMount("MONETIZE_SRC_PATH", "apps/agent-monetize", "agent-monetize 源码树"),
@@ -76,7 +77,8 @@ MONETIZE_SPEC = StackSpec(
         "MONETIZE_IMAGE_TAG", "MONETIZE_CONTAINER_NAME", "MONETIZE_WORKSPACE",
         "MONETIZE_SSH_PORT", "MONETIZE_JUPYTER_PORT", "MONETIZE_SRC_PATH",
     ),
-    not_running_hint="monetize 栈未运行，请先：invoke monetize.up --skip-build",
+    not_running_hint="monetize 栈未运行，请先：invoke monetize.up"
+    "（默认随带构建；本地已有镜像可加 --skip-build）",
 )
 
 TASKS = make_stack_tasks(MONETIZE_SPEC)

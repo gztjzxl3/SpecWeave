@@ -5,6 +5,9 @@
 # apache-tvm-ffi wheel 仅 cp314 GIL：内核 argv 固定 /opt/conda/bin/python
 # （base env），Jupyter 服务在 main env 由 supervisord 运行。
 # 内核 env 携带源码 PYTHONPATH 与 tvm_ffi 的 LD_LIBRARY_PATH。
+# PATH 前置 /home/devuser/.local/bin：pip --user 控制台脚本（xc/xs 等）落点于
+# 此；notebook 单元格 ! 走 dash 非登录 shell（不读 ~/.profile），缺该目录则裸名
+# 命令不可见（2026-10-13 实测）。目录构建期可不存在，execvp 静默跳过不存在条目。
 # root 与 devuser 均可见（写 main env sys-prefix 共享 kernels 目录）。
 # ==============================================================================
 set -euo pipefail
@@ -29,7 +32,7 @@ cat > "${KERNEL_DIR}/kernel.json" <<'JSON'
  "display_name": "Python 3.14 (agent-monetize dev)",
  "language": "python",
  "env": {
-  "PATH": "/opt/conda/bin:/opt/conda/envs/main/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "PATH": "/home/devuser/.local/bin:/opt/conda/bin:/opt/conda/envs/main/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
   "PYTHONPATH": "/workspace/agent-monetize/src",
   "LD_LIBRARY_PATH": "/opt/conda/lib/python3.14/site-packages/tvm_ffi/lib:/opt/conda/envs/main/lib"
  }

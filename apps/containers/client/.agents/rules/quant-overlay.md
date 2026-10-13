@@ -20,7 +20,7 @@
   logs/smoke）即模块全部内容；门禁/环境准备/argv/执行/残留自愈/冒烟双路径
   等同构编排逻辑**唯一定义在 overlay_core**，quant.py 不再含任何编排函数。
 - **红线：内核零栈知识 / 栈模块零 podman**——overlay_core 与共享包 jpman_common
-  不得 import quant/xmnn/monetize，也不得出现具体栈名/栈路径（栈知识一律由
+  不得 import quant/native/monetize，也不得出现具体栈名/栈路径（栈知识一律由
   StackSpec 实例从外部注入）；`import podman` 只允许出现在
   `apps/containers/shared` 的 jpman_common 内。
 - 禁止把 compose 提升为 `invoke run` 的第三层后端（用户 2026-09-13 裁决）：
@@ -57,11 +57,17 @@
 证实三必需全部可用标准 Compose 字段表达，**严禁**特权容器与非必要 x-podman。
 三必需连同凭证四变量（`USER_PASSWORD`/`JUPYTER_TOKEN`/`SSH_PUBLIC_KEY`/
 `GRANT_SUDO`）、公共 label（`org.specweave.managed-by=jupyter-podman-client`）、
-`restart: unless-stopped` 与 `network_mode: bridge` 的**单一事实源**是
+`restart: unless-stopped`、`network_mode: bridge` 与日志驱动
+`logging: {driver: k8s-file}`（C24：journald 驱动在本机 WSL 下 `podman logs`
+读不到，会打挂凭证回读与 `invoke <ns>.logs`）的**单一事实源**是
 `overlays/_shared/base-rootless.yaml`（服务名 `rootless-base`）；三栈
 compose.yaml 只以 `extends: {file: ../_shared/base-rootless.yaml, service:
 rootless-base}` 继承，**栈文件禁止重复声明**这些字段，只保留栈专属的
-image/build/ports/volumes/栈 env/`labels.component`。字段映射保留备查
+image/build/ports/volumes/栈 env/`labels.component`——volumes 含 workspace
+长语法 bind 与 `quant-ssh-host-keys` 命名卷（2026-09-20 起：挂
+`/var/lib/jpman/ssh-host-keys` 持久化 SSH host key，`down/up` 重建容器不
+轮换主机指纹；entrypoint 以 `mountpoint -q` 分流持久/容器层两模式，
+down 默认保留、`--volumes` 删除）。字段映射保留备查
 （现位于基文件）：
 
 | rootless 三必需（utils.ContainerConfig 默认值同源） | 基文件 compose 字段 |
@@ -77,7 +83,10 @@ image/build/ports/volumes/栈 env/`labels.component`。字段映射保留备查
   bridge。
 - workspace 绑定一律**长语法** + `bind.create_host_path: true`（短语法在
   podman-compose 会无条件 `os.makedirs`，Windows/异常路径宿主残留事故的同源教训）。
-- GPU 默认不透传（默认隔离）；仅 `-f compose.gpu.yaml` 时叠加。
+- GPU 默认不透传（默认隔离）；仅 `up --gpu` 时叠加覆盖文件（C19，同
+  [native-overlay.md](native-overlay.md) §11.1——运行期探测设备/驱动库可用性后
+  按形态选 `compose.gpu.yaml` 或 `compose.gpu.wsl.yaml`，缺失 fail-fast，
+  不再把缺省 `/dev/dri` 直接丢给 podman 报 exit 125）。
 
 ## 4. 多文件深合并语义（GPU 覆盖写法依据）
 
@@ -87,9 +96,12 @@ image/build/ports/volumes/栈 env/`labels.component`。字段映射保留备查
 dict bind 不去重**——workspace 绑定全部用长语法（见 §3），故 override 中
 重声明同 target 会产生重复挂载，需人工避免，不能依赖合并器去重。
 
-> `compose.gpu.yaml` 只写新增设备（`/dev/dri:/dev/dri`），**禁止**重复 /dev/fuse；
-整体替换才用 `!override`，本栈无此需求。CDI 形态（nvidia.com/gpu=all）与
-/dev/dri 互斥，以注释给出，不默认启用。
+> `compose.gpu.yaml` 只写新增设备，**禁止**重复 /dev/fuse；设备项为**单条**
+> `${GPU_DEVICE:-/dev/dri}` 插值（`/` 开头=设备路径、否则=CDI 引用，见
+> [native-overlay.md](native-overlay.md) §11.1）——写成 `a:b` 两条并列必有一条
+> 非法（podman-compose 1.6.0 原样下传为 `--device <item>`，不做冒号拆分）。
+> 整体替换才用 `!override`，本栈无此需求；WSL2 形态见姊妹文件
+> `compose.gpu.wsl.yaml`（`/dev/dxg` + 挂 libcuda），**两者互斥不可同时加载**。
 
 ### 4.1 extends 服务级继承（base-rootless.yaml 合并语义）
 

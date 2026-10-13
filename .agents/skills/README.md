@@ -34,7 +34,7 @@ title: ".agents/skills/ 目录索引"
 | token-optimize-cmd | 命令门面 | Token优化 | Token优化、降本、成本优化、缓存命中率、上下文压缩、Prompt优化、LLM成本 | [token-optimize-cmd/SKILL.md](token-optimize-cmd/SKILL.md) |
 | sovereign-rollout-cmd | 命令门面 | 主权区治理资产落盘 | 提案、批准落盘、主权区变更、治理资产落盘、先提案后批准 | [sovereign-rollout-cmd/SKILL.md](sovereign-rollout-cmd/SKILL.md) |
 
-### 完整Skill（7个）
+### 完整Skill（8个）
 
 | Skill名称 | 类型 | 功能描述 | 核心触发词 | SKILL.md路径 |
 |-----------|------|---------|-----------|-------------|
@@ -42,17 +42,21 @@ title: ".agents/skills/ 目录索引"
 | home-assistant | 完整Skill | Home Assistant智能家居系统集成（设备控制、状态查询、服务调用），REST API交互 | 智能家居、控制设备、查询状态、home assistant、ha_api | [home-assistant/SKILL.md](home-assistant/SKILL.md) |
 | git-commit-helper | 完整Skill | Git原子化提交规范执行（三查暂存法→预提交验证→构建提交信息→执行提交→验证结果），含validate_commit.py | 提交、commit、原子提交、代码提交、提交变更、git commit、保存更改 | [git-commit-helper/SKILL.md](git-commit-helper/SKILL.md) |
 | trae-computer-use-ptc | 完整Skill | Computer Use Windows 桌面应用 UI 自动化指南（本地 MCP）：list_apps/get_app_state/click/scroll/type_text 等操作，Electron/桌面应用场景，高风险操作前须确认；import-builtin-skills 时既有同名保留未覆盖的本地 v1.2.0 | Computer Use、电脑操作、UI自动化、桌面交互、操作应用 | [trae-computer-use-ptc/SKILL.md](trae-computer-use-ptc/SKILL.md) |
-| client-overlay-scaffold | 完整Skill | apps/containers/client/overlays/ 工作负载叠加栈脚手架（v1.1）：形态 A/B 决策树 + 声明式 StackSpec（make_stack_tasks 六任务工厂，栈模块零生命周期代码）+ compose extends `_shared/base-rootless.yaml` 基段（三必需/凭证/bridge 单一事实源）；compose/namespace/.env 三套骨架模板 + 12 件套清单 + 7 接线登记点（含 test_tasks_surface/test_compose_merge 两张黄金表）+ G1~G15 实测踩坑 + 四级验证链；源自 quant/xmnn/monetize 三栈与两轮独立审查 | 新增 client 叠加层、工作负载栈、新 compose invoke 命名空间、照 onnx/xmnn/monetize 栈再做一个、overlay 脚手架 | [client-overlay-scaffold/SKILL.md](client-overlay-scaffold/SKILL.md) |
+| client-overlay-scaffold | 完整Skill | apps/containers/client/overlays/ 工作负载叠加栈脚手架（v1.1）：形态 A/B 决策树 + 声明式 StackSpec（make_stack_tasks 六任务工厂，栈模块零生命周期代码）+ compose extends `_shared/base-rootless.yaml` 基段（三必需/凭证/bridge 单一事实源）；compose/namespace/.env 三套骨架模板 + 12 件套清单 + 7 接线登记点（含 test_tasks_surface/test_compose_merge 两张黄金表）+ G1~G15 实测踩坑 + 四级验证链；源自 quant/native/monetize 三栈与两轮独立审查 | 新增 client 叠加层、工作负载栈、新 compose invoke 命名空间、照 onnx/native/monetize 栈再做一个、overlay 脚手架 | [client-overlay-scaffold/SKILL.md](client-overlay-scaffold/SKILL.md) |
 | collect-api-decouple-cmd | 完整Skill | 硬件/设备采集类 API 的"采集-解析分离 + 日志复用"重构执行卡：副作用边界切分（触网/写盘 vs 纯本地计算）、dataclass 阶段契约、`run_<step>=True` 开关逐层贯通、复用分支纯路径推导并规避 rmtree/unlink 清理型工厂、产物缺失同源报错、缩放参数一致性警示；含 I→F→A→V 步骤模板、安全检查清单、Gotchas 与 npuusertools 双案例 | 推理和后处理分开、采集/推理变成可选、已经推理过了复用日志、跳过设备执行、重放日志、只重新算指标 | [collect-api-decouple-cmd/SKILL.md](collect-api-decouple-cmd/SKILL.md) |
 | personal-kb-navigator | 完整Skill | 个人 AI 知识库（根说明 + 主题库 + 回源区）的取材/核对/整理/沉淀导航器：取材决策树（9 分支）+ 三条沉淀铁律 + 收件箱→分流漏斗 + 写入安全清单（13 项，含预览/幂等/验证）；`KB_ROOT` 三级解析（用户给定 → 环境变量 `PERSONAL_KB_ROOT` → 询问），以「七库一说明」为示例实例 | 个人知识库、我的知识库、调用地图、总入口、收件箱、老板说明书、产品事实表、客户需求库、素材调用地图、方法论库、写文章调用地图、处理一条念头、找素材、沉淀素材卡、核对产品价格、整理大文档、客户信息脱敏 | [personal-kb-navigator/SKILL.md](personal-kb-navigator/SKILL.md) |
+| classical-festival-video | 完整Skill | 古典底本节日祝福视频生成（三关键帧→10s竖版视频→随片文案+考据弹药；含情感分寸矩阵、画面禁字约束、预览确认门与物理量验收） | 祝福视频、节日贺卡视频、给 TA 做个视频、用老子/庄子/诗词做底本、中秋/春节/元宵祝福 | [classical-festival-video/SKILL.md](classical-festival-video/SKILL.md) |
 
-### 工作流门面（3个）
+### 工作流门面（6个）
 
 | Skill名称 | 类型 | 功能描述 | 核心触发词 | SKILL.md路径 |
 |-----------|------|---------|-----------|-------------|
 | source-code-to-okf-wiki | 工作流门面 | 源码阅读→OKF Wiki 生成（R→I→E→V→C 五阶段，信源先行、分批生成、Grep级API验证，杜绝虚构API） | 源码学习、读源码、源码阅读、生成Wiki、OKF Wiki、源码转文档、深度学一个库 | [source-code-to-okf-wiki/SKILL.md](source-code-to-okf-wiki/SKILL.md) |
 | blog-article-to-okf-wiki | 工作流门面 | 博文/资讯文章→OKF 知识包转化（七阶段：敏感度预检→骨架两问→归属决策树→F编号事实+P0核验勘误四清单→三层拆分→信源先生成→对抗审查），13篇实战验证 | 博文转化、公众号文章、微信文章、转知识包、OKF bundle、OKF wiki、文章转文档、资讯转知识库 | [blog-article-to-okf-wiki/SKILL.md](blog-article-to-okf-wiki/SKILL.md) |
 | scanned-book-to-okf-wiki | 工作流门面（v2.0.0，L2 双案例验证） | 扫描版版权书籍→OKF Wiki 教程转化（六工序：route决策前置→文本层可信度判定（覆盖纯图像与扫描图+噪声OCR混合型）+逐章通读页码映射→深度摘要→原创改写（含主张分层）→合规声明契约化（含计数口径）→V审查实证对账（含中间摘要回图核验））；案例1财商寓言、案例2《魔力》练习册 | 扫描版书籍转教程、书转Wiki、摘要替代转录、扫描版版权材料、书转知识包、混合型PDF | [scanned-book-to-okf-wiki/SKILL.md](scanned-book-to-okf-wiki/SKILL.md) |
+| ⭐ role-model-methodology | 工作流门面（v1.1.0） | 榜样人物方法论萃取与正面解读（四级事实分层 A权威/B百科/C转述/D推断 → 三框架诊断 → 证据桥接审查（时间线核对 + ★~★★★★★五档强度）→ 六步解读法 → 23条交付门禁）；含伦理四条约束（创伤不是教材/他人不是论据/隐私不评判/幸存者偏差前置）；案例：2026-10-03 三人榜样知识包（陶行知/游本昌/胡歌，61文档/254条四级事实/3框架） | 榜样学习、人物解读、正面解读师、名人方法论、人物关联洞察、榜样学习路径、终身学习者、怎么学名人、人物知识包、向谁学习、以某人为榜样 | [role-model-methodology/SKILL.md](role-model-methodology/SKILL.md) |
+| mindfulness-positivity | 工作流门面（v1.0.0） | 正念 vs 正面（积极心态）概念辨析与整合：四场景决策树（概念问答/内容产出/自我调节方案/知识包沉淀）+ 七维度辨析框架 + 「先接纳后重构」四步整合法 + 心理健康安全边界（不诊断/不替代治疗/危机转介/证据分级）；L2 知识底座 sc-20261003-mindfulness-positivity（22事实/3洞察/1模式） | 正念、正面、积极心态、正能量、mindfulness、positive thinking、习得性乐观、有毒正能量、toxic positivity、先接纳后重构、正念和积极有什么区别 | [mindfulness-positivity/SKILL.md](mindfulness-positivity/SKILL.md) |
+| dao-san-triads | 工作流门面（v1.0.0） | 「三」之本体论与三元组诊断：六类「三」解释谱系（和气/天地人/一+天地/模式/三合生物/本体显现）+ **第五义「三=关系位」统一模型** + 奥古斯丁三分法与最强反驳 + 时态检验诊断法 + 两组行动三元组四元关联 + **七条可当场判定的生存指南**（≤1200字）+ 「三之位」可迁移模式（5反模式/3问检验/L1-draft）+ 《老子》版本纪律（甲乙本/今本/楚简本不得混称）；L2 知识底座 sc-20261003-dao-san-yuan（50事实/4洞察/1模式/9条审查） | 三生万物、道生一、二生三、三之位、三元组、过去现在未来、时间三分、奥古斯丁三分法、一分为三、真问题真需求真目标、品质技能身份、生存指南、行动准则、极简原则、二选一怎么办、自我诊断、古典哲学概念 | [dao-san-triads/SKILL.md](dao-san-triads/SKILL.md) |
 
 ### Trae 内置工作流 Skill（2个，来自 external/doutops）
 
@@ -131,21 +135,26 @@ Trae IDE 内置设计系统库完整归档（2026-09-03 导入），来源目录
 | yuanli-design-system | Yuanli（源力） | 源力设计系统（Volcengine，PRD 驱动中文生成）：PRD→页面生成规则 + 完整 token/组件/UI kit | [SKILL.md](yuanli-design-system/SKILL.md) |
 | vibecamp-design | Vibecamp | Vibecamp 大胆编辑风 dashboard 产品：设计准则/色彩/字体/组件参考/UI kit | [SKILL.md](vibecamp-design/SKILL.md) |
 
-### 脚本命令门面（11个）
+### 脚本命令门面（16个）
 
 | Skill名称 | 类型 | 对应脚本 | 核心触发词 | SKILL.md路径 |
 |-----------|------|---------|-----------|-------------|
-| compose-overlay-ops | 应用CLI门面 | invoke quant.*/xmnn.*/monetize.*（apps/containers/client，podman-compose 子进程层） | 启动/重建 xmnn-dev、onnx-quantized、agent-monetize 叠加栈、xmnn.up/build/smoke、容器 Exited(0)、netavark nft、Jupyter 保存 Errno 13、WSL 发行版回收、tuna 构建叠加镜像 | [compose-overlay-ops/SKILL.md](compose-overlay-ops/SKILL.md) |
+| compose-overlay-ops | 应用CLI门面 | invoke quant.*/native.*/monetize.*（apps/containers/client，podman-compose 子进程层） | 启动/重建 native-dev、onnx-quantized、agent-monetize 叠加栈、native.up/build/smoke、容器 Exited(0)、netavark nft、Jupyter 保存 Errno 13、WSL 发行版回收、tuna 构建叠加镜像 | [compose-overlay-ops/SKILL.md](compose-overlay-ops/SKILL.md) |
 | jpman-podman-ops | 应用CLI门面 | jpman（apps/containers/jupyter-podman-rootless/bin，bash/cmd/ps1 三版本） | jpman、启动jupyter容器、podman machine、工作区挂载、容器WARN分诊、fuse device、rootless排障、WSL保活、rebuild | [jpman-podman-ops/SKILL.md](jpman-podman-ops/SKILL.md) |
+| openkylin-wsl-devkit | 应用CLI门面 | okw（apps/dev-tools/openkylin-wsl-devkit，Python 零运行时依赖 CLI，七组命令） | okw、openKylin WSL 导入/验收、openKylin 发行版内装 podman、okw podman/compose/image 排错、xuan-compose/xc 引导、openKylin 开发容器镜像、deb/dput 脚手架、okw ref、修改 openkylin-wsl-devkit 源码 | [openkylin-wsl-devkit/SKILL.md](openkylin-wsl-devkit/SKILL.md) |
 | docker-cache-cmd | 脚本门面 | docker-cache（bash） | 保存镜像、缓存Docker镜像、docker缓存、镜像缓存、加载镜像、WSL重置恢复、docker save/load、镜像本地缓存 | [docker-cache-cmd/SKILL.md](docker-cache-cmd/SKILL.md) |
 | docker-wsl-bridge-cmd | 跨Shell编排 | wsl+podman命令编排 | 镜像转WSL、docker镜像导入WSL、镜像转rootfs、podman export转wsl、WSL重置后恢复开发环境、docker-wsl-bridge | [docker-wsl-bridge-cmd/SKILL.md](docker-wsl-bridge-cmd/SKILL.md) |
 | wsl-ops-cmd | 脚本门面 | compress-wsl-vhdx.ps1、Restart-WslDockerGpu.ps1、setup-wsl-docker-gpu.sh、cleanup-trae-cache.ps1 | WSL磁盘清理、vhdx压缩、盘爆红、Docker GPU不可用、--gpus报错、nvidia-container-toolkit、wsl --shutdown后Docker不自启、wsl.conf boot、setsid dockerd、Trae缓存清理、fstrim、孤儿卷/build cache清理 | [wsl-ops-cmd/SKILL.md](wsl-ops-cmd/SKILL.md) |
 | link-check-cmd | 脚本门面 | check-links.py | 链接检查、断链修复、验证链接、提交前检查 | [link-check-cmd/SKILL.md](link-check-cmd/SKILL.md) |
 | atomization-finalize-cmd | 脚本门面 | finalize-atomization.py | 原子化收尾、一键收尾、文件移动后处理、断链修复导航更新 | [atomization-finalize-cmd/SKILL.md](atomization-finalize-cmd/SKILL.md) |
+| submodule-atomization-finalize-cmd | 脚本门面（子模块补位） | 自带 scripts/check_doc_links.py（GitHub slug 门禁）+ 六步收尾 SOP | 子模块文档原子化收尾、projects 下文档拆分收尾、子模块断链/中文锚点检查、子模块文件移动引用核对、事实守恒 diff | [submodule-atomization-finalize-cmd/SKILL.md](submodule-atomization-finalize-cmd/SKILL.md) |
 | docgen-cmd | 脚本门面 | docgen.py | 更新导航、刷新看板、生成文档索引、docgen、更新README | [docgen-cmd/SKILL.md](docgen-cmd/SKILL.md) |
 | ci-check-cmd | 脚本门面 | ci-check.ps1/ci-check.sh | CI检查、提交前检查、综合检查、流水线检查、全量检查、pre-commit | [ci-check-cmd/SKILL.md](ci-check-cmd/SKILL.md) |
 | check-duplication-cmd | 脚本门面 | check-duplication.py | 重复代码、重复检查、代码重复、提取共享库、DRY检查、脚本重复 | [check-duplication-cmd/SKILL.md](check-duplication-cmd/SKILL.md) |
 | knowledge-graph-generator | 脚本门面 | generate-graph.py | 知识图谱、knowledge graph、概念关系可视化、交互式知识图谱、节点关系网络 | [knowledge-graph-generator/SKILL.md](knowledge-graph-generator/SKILL.md) |
+| artifact-consistency-audit | 脚本门面 | 复用 check-links.py + check-source-traceability.py（无新建脚本） | 核验一致性、复验、体检、覆盖率核对、引用是否忠实、有无遗漏、修补后复验 | [artifact-consistency-audit/SKILL.md](artifact-consistency-audit/SKILL.md) |
+| docs-as-product-cmd | 脚本门面 | docs-as-product.py | 文档即产品、docs-as-product、Diátaxis四型分区、文档质量门G1-G4/V门、sphinx-build -W、元数据漂移F-021、读者契约、文档指标M1-M5 | [docs-as-product-cmd/SKILL.md](docs-as-product-cmd/SKILL.md) |
+| wsl-vhdx-compact-cmd | 脚本门面 | compact-vhdx-with-baseline.ps1；失败自动降级 compress-wsl-vhdx.ps1（双方案自动降级 + BaselineOnly dry-run 只读基线 + RestorePodman/RestoreOriginalState 原态恢复 + Win32 FreeGiB 数值闭环） | 压缩WSL磁盘、vhdx回收、ext4.vhdx太大、wsl --manage --compact、宿主机FreeGiB核对、VHDX前后基线、podman-machine-default vhdx压缩、openKylin WSL磁盘回收、C/D盘爆红 清WSL、wsl vhdx瘦身、Win32_LogicalDisk 对账 | [wsl-vhdx-compact-cmd/SKILL.md](wsl-vhdx-compact-cmd/SKILL.md) |
 
 ## 模板
 

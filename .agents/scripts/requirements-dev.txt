@@ -12,3 +12,6 @@ pyyaml>=6.0
 markdown-it-py>=3.0
 mdit-py-plugins>=0.4
 openpyxl>=3.1
+# test_doc_navbar_options.py 动态加载 projects/awesome-okf-xs/tasks/docs.py，
+# 该模块 `from invocations import docs`（版本约束对齐其 pyproject 的 doc 可选组）
+invocations>=4.0

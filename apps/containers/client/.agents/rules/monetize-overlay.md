@@ -3,7 +3,7 @@
 > 单一职责：本文件只约束 `overlays/agent-monetize-dev/` 叠加镜像与
 > `src/jpman_client/tasks/monetize.py` 编排任务。同族通用红线继承
 > [quant-overlay.md](quant-overlay.md) 与 [client-overlay-scaffold](../../../../../.agents/skills/client-overlay-scaffold/SKILL.md)；
-> 形态 B（轻量工具链挂载栈）范式真源为 [xmnn-overlay.md](xmnn-overlay.md)。
+> 形态 B（轻量工具链挂载栈）范式真源为 [native-overlay.md](native-overlay.md)。
 
 ## 1. 架构边界（四层不可混）
 
@@ -11,7 +11,7 @@
 |---|---|---|
 | 根/`container.*` | podman-py SDK → CLI fallback | 单容器生命周期（零回归对象） |
 | `env.*` | podman CLI 子进程 | client SDK 自举镜像 |
-| 根/`quant.*` `xmnn.*` | 既有工作负载栈 | 不改动 |
+| 根/`quant.*` `native.*` | 既有工作负载栈 | 不改动 |
 | **`monetize.*`** | **podman-compose 子进程** | **agent-monetize 源码调试 + tvm-ffi 原生 .so 编译 + 纯 Python wheel** |
 
 - `monetize.py` **禁止 `import podman`**；禁回流根 `invoke run`。
@@ -43,11 +43,21 @@ utils 只内置 `_BRIDGE_COMMON_ENV_KEYS` 通用键集。
 
 三必需（devices `/dev/fuse`、security_opt `label=disable`、cgroupns
 `host`，1.6 空操作须注释）、凭证四变量与 `network_mode: bridge`
-（machine 无 systemd user bus 实证，与 xmnn 同）已**上移
+（machine 无 systemd user bus 实证，与 native 同）已**上移
 `../_shared/base-rootless.yaml`**，栈 compose.yaml 以
 `extends: {file: ../_shared/base-rootless.yaml, service: rootless-base}`
 继承，**栈文件禁止重复声明**，只保留栈专属 image/build/ports/两个
-bind volumes/栈 env（PYTHONPATH/LD_LIBRARY_PATH）/`labels.component`；
+bind volumes/`monetize-userlocal`/`monetize-jupyter`/
+`monetize-ssh-host-keys` 三个命名卷/栈 env（PYTHONPATH/
+LD_LIBRARY_PATH）/`labels.component`。命名卷契约（与 native-dev 同构，
+排障 C-I13，2026-10-13）：① `monetize-userlocal` 挂 `/home/devuser/.local`
+持久化 pip --user/editable 全部落点（user-site + bin 控制台脚本）；
+② `monetize-jupyter` 挂 `~/.local/share/jupyter` 持久化登录态，且是
+userlocal 的【嵌套子挂载】，compose 卷列表必须排在 userlocal 之后；
+③ `monetize-ssh-host-keys` 挂 `/var/lib/jpman/ssh-host-keys` 持久化
+SSH host key，entrypoint 以 `mountpoint -q` 分流持久/容器层两模式。
+三卷均 down 默认保留、`--volumes` 删除；smoke_native.py 1d 段断言父子
+挂载关系与 devuser 可写性；
 严禁 privileged。extends 合并语义（rec_merge / L2844-L2849 路径解析 /
 volumes 长短语法差异）见
 [quant-overlay.md](quant-overlay.md) §4.1。探测用
@@ -61,7 +71,7 @@ volumes 长短语法差异）见
   `overlay_core.prepare_env` 统一解析，缺失 Exit 1）。
 - 镜像构建上下文=overlay 目录；Containerfile 构建期**不读 agent-monetize
   源码**（无 BuildKit bind）；工具链与打包脚本烤入镜像。
-- **checkpoint 可写性契约**：与 xmnn/quant 同族（三栈共享 client/workspace）。
+- **checkpoint 可写性契约**：与 native/quant 同族（三栈共享 client/workspace）。
   Jupyter 以 devuser(1000) 运行，rootless+9p/drvfs 下 root 预建的
   `$MONETIZE_WORKSPACE/.ipynb_checkpoints` 在容器视角为 0:0 755 时保存
   notebook 必报 Errno 13；invoke 侧 `overlay_core.prepare_env(MONETIZE_SPEC)`
@@ -69,7 +79,7 @@ volumes 长短语法差异）见
   调用 `utils.ensure_workspace_checkpoint_writable()`（幂等 0777、只改权限位
   不改属主、只作用该单一目录不递归、不碰源码 bind）。
 
-## 5. 本栈特有契约（与 xmnn-dev 的轻量化差异）
+## 5. 本栈特有契约（与 native-dev 的轻量化差异）
 
 - **apt clang 而非 conda LLVM 22**：编译单个 `score_opportunity.cc` 对
   LLVM 版本不敏感，apt `clang++` + patchelf + gdb 即可；tvm-ffi 头/库
@@ -111,7 +121,7 @@ volumes 长短语法差异）见
 
 ## 8. 选型与边界
 
-- 需要重型 Nuitka/编译整个 TVM/打 xmnn whl → [xmnn-overlay.md](xmnn-overlay.md)。
+- 需要重型 Nuitka/编译整个 TVM/打 xmnn whl → [native-overlay.md](native-overlay.md)。
 - ONNX 量化分析 → [quant-overlay.md](quant-overlay.md)。
 - 改 agent-monetize 业务代码（打分/通道/合规等）走该应用自身规范，
   不在本规则范围。
@@ -122,5 +132,15 @@ volumes 长短语法差异）见
   编译解释器选错会出现 `import tvm_ffi` 失败但无明确 ABI 提示。
 - **config.yaml 空 native_lib 必须回退默认**：from_dict 对空串/None 的
   native_lib 过滤，否则会覆盖平台默认得到空路径。
-- **裸 compose 相对 source 副产物**：与 xmnn 同族（G1）；invoke 绝对
+- **裸 compose 相对 source 副产物**：与 native 同族（G1）；invoke 绝对
   路径不产生。
+- **tuna apt 源对 Ubuntu 26.04(resolute) 403（2026-10-13 实测）**：基底镜像
+  ubuntu.sources 钉死 tuna，resolute pool 大面积 403 致 Layer 1 clang 安装
+  失败（与 pip 源无关）。对策：Containerfile 支持 `APT_MIRROR` build-arg
+  （official 默认零回归；aliyun/tuna 构建期 sed 换源），经 StackSpec
+  `apt_mirror=True` 开关透传——**无 CLI 旗标**，只在 shell/.env 设
+  `APT_MIRROR=aliyun`（C15 同序，build / up 内联 / compose 三处同键）。
+- **横幅"密码"是 devuser Linux 账户密码**（entrypoint 每次 pwgen 随机，写
+  overlay，重建即变）；Jupyter 浏览器登录态由 `monetize-jupyter` 卷的
+  `runtime/jupyter_cookie_secret` 持久（重建免重登），token 直达 URL 亦跨
+  重建不变——"登录态持久"指前者，勿与账户密码混淆。

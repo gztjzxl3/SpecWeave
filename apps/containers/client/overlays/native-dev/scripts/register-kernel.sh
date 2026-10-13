@@ -8,6 +8,11 @@
 #     /opt/conda/bin/python（base env）；
 #   - 内核 env 携带源码 PYTHONPATH/TVM_LIBRARY_PATH/LD_LIBRARY_PATH，Notebook
 #     直接调试 /workspace 下挂载的 npu_tvm/npuusertools 源码。
+#   - 内核 env.PATH 必须前置 /home/devuser/.local/bin：pip --user 安装的 xc/xs
+#     等控制台脚本均落点于此；notebook 单元格 ! 走 dash 非登录 shell（不读
+#     ~/.profile），PATH 缺该目录时裸名命令直接 "not found"（2026-10-13 实测
+#     根因）。该目录构建期可尚不存在——execvp 对不存在的 PATH 条目静默跳过，
+#     预置零副作用，且可规避 ~/.profile「目录存在才加入」的启动时序陷阱。
 #
 # 注册位置：main env 的 sys.prefix 共享 kernelspec 目录（root 与 devuser 均可见）。
 # ==============================================================================
@@ -34,7 +39,7 @@ cat > "${KERNEL_DIR}/kernel.json" <<'JSON'
  "display_name": "Python 3.14 (native dev)",
  "language": "python",
  "env": {
-  "PATH": "/opt/conda/bin:/opt/conda/envs/main/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "PATH": "/home/devuser/.local/bin:/opt/conda/bin:/opt/conda/envs/main/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
   "PYTHONPATH": "/workspace/npu_tvm/python:/workspace/npu_tvm/vta/python:/workspace/npuusertools",
   "TVM_LIBRARY_PATH": "/workspace/npu_tvm/build",
   "LD_LIBRARY_PATH": "/workspace/npu_tvm/build:/workspace/npu_tvm/build/vta:/opt/conda/envs/main/lib",

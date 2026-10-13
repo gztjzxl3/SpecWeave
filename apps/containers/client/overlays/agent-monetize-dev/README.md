@@ -61,6 +61,12 @@ podman-compose down
 - **原生/参考一致性**：smoke 对固定输入断言两者结果容差 1e-9。
 - **wheel**：纯 Python（`agent_monetize-0.1.0-py3-none-any.whl`），
   .so 不入库（运行时从 native/build 加载）。
+- **重建不丢环境**：`pip install --user`/`pip install -e` 的落点
+  （`~/.local` user-site 与 `~/.local/bin` 控制台脚本）由命名卷
+  `monetize-userlocal` 持久化；Jupyter cookie/notebook 签名密钥由嵌套卷
+  `monetize-jupyter`（挂 `~/.local/share/jupyter`）持久化。普通
+  `invoke monetize.down/up` 重建容器后 pip 包与浏览器登录态均保留；
+  仅 `down --volumes` 清除（详见主仓排障 C-I13）。
 
 ## 参数表
 
@@ -72,7 +78,7 @@ podman-compose down
 | MONETIZE_SRC_PATH | ../../../../agent-monetize | agent-monetize 源码宿主路径（invoke 存在性硬校验） |
 | USER_PASSWORD / JUPYTER_TOKEN / SSH_PUBLIC_KEY / GRANT_SUDO | 空/空/空/yes | 凭证 |
 | PIP_MIRROR | official | pip 源；**无前缀构建参数单一事实源（C15）**，`invoke monetize.build` / `up` 内联 build / compose 段三处同键，`--pip-mirror` 只覆盖单次 build |
-| APT_MIRROR | official | apt 源（**无 CLI 旗标**，仅 shell/.env）：official=沿用基底内置源；aliyun/tuna=构建期替换 ubuntu.sources。tuna 对 Ubuntu 26.04(resolute) pool 实测 403，遇错改 aliyun |
+| APT_MIRROR | official | apt 源（**无 CLI 旗标**，仅 shell/.env）：official=沿用基底内置源；aliyun/tuna=构建期替换 ubuntu.sources。tuna 对 Ubuntu 26.04(resolute) pool 偶发 403 时用 aliyun；build / `up` 内联 / compose 段三处同键（C15） |
 | BASE_IMAGE（注释态） | rootless latest | 基底覆盖（同样被 invoke build/up 读取，C15） |
 
 ## 与相关栈的关系
@@ -94,3 +100,4 @@ podman-compose down
 | backend 一直是 reference | 先 `invoke monetize.build-native`；再确认 native/build/score_opportunity.so 存在 |
 | 裸 compose 后 workspace 出现空 agent-monetize 目录 | podman-compose 相对 source 预创建副产物（不影响真实挂载）；invoke 绝对路径不产生 |
 | clang++ 找不到 tvm_ffi.h | 镜像 pip 层异常；守卫会拦截，重跑 monetize.build |
+| notebook 单元格 `!xc`/`!xs` 报 not found | kernelspec PATH 缺 `~/.local/bin`（镜像 2026-10-13 前构建）；重跑 `invoke monetize.build` 即固化，或按排障 C-I13 热修 kernel.json |

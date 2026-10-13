@@ -220,6 +220,19 @@
   docs/04 C-I6）。该目录镜像内属主 1000:1000/mode 700，新命名卷首次
   copy-up 属主与可写性必须保持（真机实测）；down 默认保留，--volumes
   与 ccache 一并删除，删除后重新登录属预期。禁止用 bind 指宿主家目录。
+- **用户态 Python 安装命名卷（2026-10-13 起，排障 C-I13）**：第四个命名卷
+  `native-userlocal` 挂 `/home/devuser/.local`，持久化 `pip --user` 与
+  `pip install -e` 的全部落点——双 ABI user-site（base GIL 的
+  `lib/python3.14` 与 main cp314t 的 `lib/python3.14t`；xc/xuanspace 与
+  xs/pytest 分居两者，漏挂任一卷位置都会丢一半）与 `bin/` 控制台脚本。
+  不持久化时 `down/up` 重建后须逐项目重装 pip 包。硬约束：① compose 卷
+  列表中必须排在 `native-jupyter` **之前**（父挂载先于嵌套子挂载，顺序错
+  会反向遮蔽登录态卷），smoke 1d 段父子双挂载关系均断言；② 镜像内
+  `~/.local` 仅含 devuser 属主空 `share/jupyter`，新卷 copy-up 属主可写，
+  entrypoint `chown -R devuser ~/.local` 另作兜底；③ 存量容器首次挂卷前
+  须把可写层 `~/.local` 数据 tar 迁入新卷（排除 `share/jupyter`——它由
+  嵌套卷独占，迁了是永不可见的死副本）；④ down 默认保留，--volumes
+  删除后重装 pip 包属预期；禁止用 bind 指宿主家目录（污染宿主树/跨栈串味）。
 - **SSH host key 命名卷（2026-09-20 起）**：第三个命名卷
   `native-ssh-host-keys` 挂 `/var/lib/jpman/ssh-host-keys`。基底 entrypoint
   以 `mountpoint -q` 为唯一分流判据——挂载即持久模式（key 落卷内、
@@ -255,8 +268,8 @@
   无 systemd user bus 时默认项目网络 aardvark-dns 必失败；实证注释保留在
   基文件与 native compose.yaml 文件头，不得擅自删改。
 - 栈文件只保留栈专属字段：image/build/ports/六个 bind volumes、调试
-  environment、`labels.component`；`native-ccache`/`native-jupyter`/
-  `native-ssh-host-keys` 三个命名卷等栈专属卷保持栈内声明（基文件无
+  environment、`labels.component`；`native-ccache`/`native-userlocal`/
+  `native-jupyter`/`native-ssh-host-keys` 四个命名卷等栈专属卷保持栈内声明（基文件无
   volumes/build/env_file/ports）。extends
   合并语义（rec_merge / L2844-L2849 路径解析）见 [quant-overlay.md](quant-overlay.md) §4.1。
 - up 成功横幅**回读容器内实际凭证并打印**（C24，2026-09-20）：`.env` 凭证键
@@ -320,8 +333,17 @@
 - `smoke_mounts.py`：仅栈运行路径（compose exec）；三挂载点断言始终执行；
   libtvm.so 缺席时跳过 import/算例段并 exit 0（首次未编译合法），存在时
   断言 tvm/vta/xmnn 来自 /workspace 源码并跑 tvm.build('llvm') 向量加。
+  **1c 段（2026-10-13 排障 C-I13）**：解析 native-dev kernelspec，断言
+  env.PATH 首段为 `/home/devuser/.local/bin`（pip --user 控制台脚本落点），
+  并 fork+setuid(1000) 下沉经 dash 非登录 shell 复核——notebook 单元格 `!`
+  走 dash（不读 ~/.profile），SSH 登录 shell 正常不构成 PATH 正确的证据。
 - 内核 `native-dev`（argv=/opt/conda/bin/python，env 携带源码路径）注册到
   main env share/jupyter/kernels，root/devuser 双可见，构建期断言。
+  **PATH 硬约束**：env.PATH 必须前置 `/home/devuser/.local/bin`；该目录构建期
+  可尚不存在（execvp 对不存在的 PATH 条目静默跳过），但不得从 kernelspec
+  省略——否则 pip --user 安装的 xc/xs 等裸名命令在 notebook 中 100% not
+  found（SSH 侧因 ~/.profile 自动补目录而不可见此故障）。agent-monetize-dev
+  内核同契约，双栈 smoke 各有 1c 同款探针。
 
 ## 9. 选型依据与边界
 

@@ -54,7 +54,7 @@ MONETIZE_SPEC = StackSpec(
         logs="跟踪 agent-monetize-dev 栈服务日志（Ctrl+C 退出，不影响容器运行）。",
         smoke="运行 agent-monetize 冒烟：工具链守卫（始终）+ 原生/挂载冒烟（栈运行时）。",
     ),
-    down_volumes_help="同时删除栈命名卷（默认保留以加速重复运行）",
+    down_volumes_help="同时删除 monetize-userlocal / monetize-jupyter / monetize-ssh-host-keys 命名卷（默认保留：pip --user 安装包 + Jupyter 登录态 + SSH 主机指纹）",
     ssh_default="2224",
     jupyter_default="8892",
     gpu_override=False,

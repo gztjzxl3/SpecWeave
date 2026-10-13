@@ -62,6 +62,17 @@ services:
         target: /workspace/agent-monetize
         bind:
           create_host_path: true
+      # 用户态 Python 安装命名卷（pip install --user / pip install -e 的落点）：
+      # ~/.local 承载 user-site（lib/python3.14）与 bin/ 控制台脚本；不持久化
+      # 时 down/up 重建后 editable finder 与脚本随临时层全丢（2026-10-13 实证，
+      # 排障 C-I13）。新卷首次 copy-up 继承镜像内 devuser 属主空目录，entrypoint
+      # 另幂等 chown -R 兜底。必须列在下方 monetize-jupyter 之前：后者以嵌套
+      # 子挂载覆盖卷内 share/jupyter，顺序错会反向遮蔽登录态卷。down 默认保留。
+      - monetize-userlocal:/home/devuser/.local
+      # Jupyter 登录态命名卷（cookie_secret/notebook_secret）：不持久化时密钥随
+      # 容器临时层轮换，down/up 重建后浏览器旧标签页被踢回登录。镜像内该目录
+      # 属主 1000:1000 mode 700，新卷 copy-up 属主保持。down 默认保留。
+      - monetize-jupyter:/home/devuser/.local/share/jupyter
       # SSH host key 命名卷：挂上后基底 entrypoint 以 `mountpoint -q` 切到持久
       # 模式（key 存卷内、sshd_config 的 HostKey 指向该目录），down/up 重建容器
       # 不再轮换主机指纹，客户端 known_hosts 无需反复 ssh-keygen -R 清理；
@@ -81,4 +92,6 @@ services:
       org.specweave.component: "monetize"
 
 volumes:
+  monetize-userlocal: {}
+  monetize-jupyter: {}
   monetize-ssh-host-keys: {}

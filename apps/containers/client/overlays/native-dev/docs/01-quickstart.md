@@ -61,7 +61,7 @@ podman-compose -p native-dev exec native \
 
 invoke native.logs                         # 跟踪日志（Ctrl+C 退出）
 invoke native.down                         # 停止清理（workspace/源码保留；ccache/登录态/host key 卷保留）
-invoke native.down --volumes               # 连 native-ccache、native-jupyter、native-ssh-host-keys 命名卷一起删除
+invoke native.down --volumes               # 连 native-ccache、native-userlocal、native-jupyter、native-ssh-host-keys 命名卷一起删除
 ```
 
 启动后访问（凭证可由环境变量覆盖，见 `.env.example`）：
@@ -76,8 +76,14 @@ invoke native.down --volumes               # 连 native-ccache、native-jupyter�
 > `密码 devuser / <值>` 与带 token 的「直达」URL（C24）。回读只读容器状态，
 > **不会回写 `.env`**。
 
+> **用户态安装持久化**：`pip install --user` / `pip install -e` 的全部落点
+> （双 ABI user-site `~/.local/lib/python3.14` 与 `python3.14t`、`~/.local/bin`
+> 控制台脚本 xc/xs 等）存于命名卷 `native-userlocal`（容器内 `/home/devuser/.local`），
+> 普通 `down/up` 重建容器后安装不丢失；仅 `down --volumes` 才会清除（清除后重装备注属预期）。
+
 > **登录态持久化**：Jupyter cookie/notebook 签名密钥存于命名卷 `native-jupyter`
-> （容器内 `/home/devuser/.local/share/jupyter`），普通 `down/up` 重建容器后
+> （容器内 `/home/devuser/.local/share/jupyter`，以嵌套子挂载挂在 `native-userlocal`
+> 卷内），普通 `down/up` 重建容器后
 > 浏览器无需重新登录；仅 `down --volumes` 才会清除（清除后重新登录属预期）。
 > 旧标签页若在重建后提示失败，硬刷新（Ctrl+Shift+R）重登即可，详见
 > [docs/04 排障速查 C-I6](../../../docs/04-troubleshooting-guide.md)。

@@ -47,11 +47,17 @@ utils 只内置 `_BRIDGE_COMMON_ENV_KEYS` 通用键集。
 `../_shared/base-rootless.yaml`**，栈 compose.yaml 以
 `extends: {file: ../_shared/base-rootless.yaml, service: rootless-base}`
 继承，**栈文件禁止重复声明**，只保留栈专属 image/build/ports/两个
-bind volumes/`monetize-ssh-host-keys` 命名卷/栈 env（PYTHONPATH/
-LD_LIBRARY_PATH）/`labels.component`（命名卷 2026-09-20 起：挂
-`/var/lib/jpman/ssh-host-keys` 持久化 SSH host key，`down/up` 重建容器不
-轮换主机指纹；entrypoint 以 `mountpoint -q` 分流持久/容器层两模式，
-down 默认保留、`--volumes` 删除）；
+bind volumes/`monetize-userlocal`/`monetize-jupyter`/
+`monetize-ssh-host-keys` 三个命名卷/栈 env（PYTHONPATH/
+LD_LIBRARY_PATH）/`labels.component`。命名卷契约（与 native-dev 同构，
+排障 C-I13，2026-10-13）：① `monetize-userlocal` 挂 `/home/devuser/.local`
+持久化 pip --user/editable 全部落点（user-site + bin 控制台脚本）；
+② `monetize-jupyter` 挂 `~/.local/share/jupyter` 持久化登录态，且是
+userlocal 的【嵌套子挂载】，compose 卷列表必须排在 userlocal 之后；
+③ `monetize-ssh-host-keys` 挂 `/var/lib/jpman/ssh-host-keys` 持久化
+SSH host key，entrypoint 以 `mountpoint -q` 分流持久/容器层两模式。
+三卷均 down 默认保留、`--volumes` 删除；smoke_native.py 1d 段断言父子
+挂载关系与 devuser 可写性；
 严禁 privileged。extends 合并语义（rec_merge / L2844-L2849 路径解析 /
 volumes 长短语法差异）见
 [quant-overlay.md](quant-overlay.md) §4.1。探测用
@@ -134,3 +140,7 @@ volumes 长短语法差异）见
   （official 默认零回归；aliyun/tuna 构建期 sed 换源），经 StackSpec
   `apt_mirror=True` 开关透传——**无 CLI 旗标**，只在 shell/.env 设
   `APT_MIRROR=aliyun`（C15 同序，build / up 内联 / compose 三处同键）。
+- **横幅"密码"是 devuser Linux 账户密码**（entrypoint 每次 pwgen 随机，写
+  overlay，重建即变）；Jupyter 浏览器登录态由 `monetize-jupyter` 卷的
+  `runtime/jupyter_cookie_secret` 持久（重建免重登），token 直达 URL 亦跨
+  重建不变——"登录态持久"指前者，勿与账户密码混淆。

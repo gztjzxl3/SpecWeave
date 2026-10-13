@@ -116,6 +116,16 @@ services:
       # ccache 命名卷持久化（Nuitka C 编译缓存）；down 默认保留，--volumes 删除。
       # named volume 短语法安全（不触发短语法 bind 的 os.makedirs 问题）。
       - native-ccache:/root/.ccache
+      # 用户态 Python 安装命名卷（pip install --user / pip install -e 的落点）：
+      # ~/.local 同时承载双 ABI user-site（base GIL 的 lib/python3.14 与 main
+      # cp314t 的 lib/python3.14t——xc/xuanspace 与 xs/pytest 分居两者）及 bin/
+      # 控制台脚本。不持久化时 down/up 重建容器后 editable finder 与脚本随临时
+      # 层全丢，必须重装（2026-10-13 实证，排障 C-I13）。新卷首次 copy-up 继承
+      # 镜像内 devuser:devuser 空目录属主，entrypoint 另幂等 chown -R 兜底。
+      # 必须列在下方 native-jupyter 之前：后者以【嵌套子挂载】覆盖卷内
+      # share/jupyter，顺序错误会反向遮蔽 Jupyter 登录态卷。
+      # down 默认保留；down --volumes 与其它命名卷一并删除（删除后重装 pip 包属预期）。
+      - native-userlocal:/home/devuser/.local
       # jupyter 登录态命名卷（cookie_secret/notebook_secret）：不持久化时密钥随
       # 容器临时层轮换，down/up 重建后浏览器旧标签页的 Terminal/notebook REST
       # 全部被踢回登录（点击 Terminal 请求在浏览器侧即被中止，服务端零日志）。
@@ -128,7 +138,7 @@ services:
       # 未挂载时 entrypoint 回退容器层生成并打 WARN（旧行为，重建即轮换）。
       # 容器内落点与客户交付栈（offline-delivery xmnn-runtime 交付包
       # release/compose.yaml）相同；卷名随栈前缀（交付栈为 xmnn-ssh-host-keys）。
-      # down 默认保留；down --volumes 与上述两卷一并删除（删后指纹轮换属预期）。
+      # down 默认保留；down --volumes 与上述三卷一并删除（删后指纹轮换属预期）。
       - native-ssh-host-keys:/var/lib/jpman/ssh-host-keys
     environment:
       # 凭证四变量（USER_PASSWORD/JUPYTER_TOKEN/SSH_PUBLIC_KEY/GRANT_SUDO）
@@ -151,5 +161,6 @@ services:
 
 volumes:
   native-ccache: {}
+  native-userlocal: {}
   native-jupyter: {}
   native-ssh-host-keys: {}

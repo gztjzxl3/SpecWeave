@@ -127,7 +127,7 @@ projects 区域内各子项目可被 SpecWeave 跨边界调用的资产清单。
 | 站点配置 | [daoapps.github.io/doc/conf.py](daoapps.github.io/doc/conf.py) | Sphinx 唯一配置入口：引文版本守卫 + 按页页脚分层注入 |
 | 组织主页 | [daoapps.github.io/doc/index.md](daoapps.github.io/doc/index.md) | 道用组织主页（14 应用五分类），`/` 路由 |
 | 结伴子站 | [daoapps.github.io/doc/jieban/index.md](daoapps.github.io/doc/jieban/index.md) | 结伴站首页，`/jieban/` 路由；四频道与社群公约见同目录 |
-| 契约测试 | [daoapps.github.io/tests/test_site_contract.py](daoapps.github.io/tests/test_site_contract.py) | 22 项站点契约（结构、配色、引文版本、内容纪律、页脚分层） |
+| 契约测试 | [daoapps.github.io/tests/test_site_contract.py](daoapps.github.io/tests/test_site_contract.py) | 31 项站点契约（结构、配色、引文版本、内容纪律、页脚分层） |
 | 发布流水线 | [daoapps.github.io/.github/workflows/pages.yml](daoapps.github.io/.github/workflows/pages.yml) | 质量门 → Sphinx 构建 → GitHub Pages 部署 |
 
 ### monetize 子项目

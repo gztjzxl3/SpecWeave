@@ -102,6 +102,18 @@ def range_conflicts_with_standard(entry: SubordinateMapEntry) -> bool:
     return ranges_overlap(entry, std)
 
 
+# apt/dpkg 的输出随系统 locale 翻译：例如 zh_CN.UTF-8 下 apt-cache policy 的
+# 「Candidate:」显示为「候选：」，"failed to fetch"/"unable to locate package"
+# 等 marker 也会被本地化。所有输出需要被解析的 apt 调用都必须经 env 强制 C locale，
+# 保证英文 marker 契约成立（env 属 coreutils 必需组件，最小发行版亦具备）。
+_APT_LOCALE_PREFIX = ("env", "LC_ALL=C", "LANGUAGE=C")
+
+
+def _apt_argv(*params: str) -> list[str]:
+    """构造强制 C locale 的 apt 系命令 argv（apt/apt-cache/apt-get 通用）。"""
+    return [*_APT_LOCALE_PREFIX, *params]
+
+
 def _is_apt_network_error(stderr: str) -> bool:
     lowered = (stderr or "").lower()
     return any(
@@ -203,17 +215,26 @@ def _classify_apt_policy(policy_stdout: str, policy_stderr: str, package: str) -
         return ("FAIL", f"{package}: {APT_NET_ERROR_LABEL}；{APT_NET_ERROR_HINT}")
     if "hash sum mismatch" in lowered or "hashes of expected file" in lowered:
         return ("FAIL", f"{package}: {APT_HASH_ERROR_LABEL}；{APT_HASH_ERROR_HINT}")
-    # 从 stdout 的 Candidate: 行判断
+    # 从候选行判断版本。正常情况下 apt 调用已强制 C locale（英文 Candidate:）；
+    # 这里再兼容 zh_CN 输出（全角「候选：」/半角「候选:」）作为纵深防御，
+    # 避免 locale 前缀在非典型环境失效时整链误判 UNKNOWN。
     candidate = ""
     for line in stdout.splitlines():
-        line = line.strip()
-        if line.lower().startswith("candidate:"):
-            candidate = line.split(":", 1)[1].strip()
+        stripped = line.strip()
+        lowered = stripped.lower()
+        if lowered.startswith("candidate:"):
+            candidate = stripped.split(":", 1)[1].strip()
+            break
+        if stripped.startswith("候选："):
+            candidate = stripped.split("：", 1)[1].strip()
+            break
+        if stripped.startswith("候选:"):
+            candidate = stripped.split(":", 1)[1].strip()
             break
     if not candidate:
-        # 没 Candidate 行也没 stderr 分类：判 UNKNOWN（索引过期）
+        # 没候选行也没 stderr 分类：判 UNKNOWN（索引过期）
         return ("UNKNOWN", f"{package}: {APT_UNKNOWN_LABEL}; {APT_POLICY_UNKNOWN_HINT}")
-    if candidate.lower() in ("(none)", "n/a", ""):
+    if candidate.lower() in ("(none)", "n/a", "(无)", "",):
         return (
             "FAIL",
             f"{package}: {APT_PKG_MISSING_LABEL}（当前软件源无可安装候选）；{APT_PKG_MISSING_HINT}",
@@ -269,7 +290,7 @@ def preflight_check(distro_name: str) -> PreflightReport:
 
     # 3. APT / dpkg 能力
     dpkg = distro.exec_distro(distro_name, ["dpkg", "--version"])
-    apt_cache = distro.exec_distro(distro_name, ["apt-cache", "--version"])
+    apt_cache = distro.exec_distro(distro_name, _apt_argv("apt-cache", "--version"))
     if not dpkg.ok:
         report.add("APT/dpkg 能力", "FAIL", f"dpkg 不可用：{dpkg.stderr.strip() or f'exit={dpkg.exit_code}'}")
     elif not apt_cache.ok:
@@ -279,7 +300,7 @@ def preflight_check(distro_name: str) -> PreflightReport:
 
     # 4. 4 个直接包候选（只读，不 update）
     for pkg in DIRECT_PACKAGES:
-        policy = distro.exec_distro(distro_name, ["apt-cache", "policy", pkg])
+        policy = distro.exec_distro(distro_name, _apt_argv("apt-cache", "policy", pkg))
         status, detail = _classify_apt_policy_result(policy, pkg)
         report.add(f"包候选 {pkg}", status, detail)
 
@@ -393,7 +414,15 @@ def _classify_apt_install_error(stderr: str, package: str, phase: str = "install
         return ("FAIL", f"{package}: {APT_NET_ERROR_LABEL}；{APT_NET_ERROR_HINT}")
     if "hash sum mismatch" in lowered or "hashes of expected file" in lowered:
         return ("FAIL", f"{package}: {APT_HASH_ERROR_LABEL}；{APT_HASH_ERROR_HINT}")
-    if "unable to locate package" in lowered or "has no installation candidate" in lowered or "couldn't find any package" in lowered:
+    missing_markers = (
+        "unable to locate package",
+        "has no installation candidate",
+        "couldn't find any package",
+        # zh_CN 翻译形态（apt 官方 zh 译法），防 locale 前缀失效
+        "无法定位软件包",
+        "没有可安装候选",
+    )
+    if any(marker in lowered for marker in missing_markers):
         return ("FAIL", f"{package}: {APT_PKG_MISSING_LABEL}；{APT_PKG_MISSING_HINT}")
     label = "apt " + phase
     return ("FAIL", f"{package}: {label} 失败（stderr={stderr.strip()[:200] if stderr else '未知'}）")
@@ -401,7 +430,7 @@ def _classify_apt_install_error(stderr: str, package: str, phase: str = "install
 
 def _apt_update_and_install(name: str, report: InstallReport) -> None:
     """执行 apt update → 逐包复查 candidate → apt install 4 直接包。"""
-    update = distro.exec_distro(name, ["apt", "update"], user="root")
+    update = distro.exec_distro(name, _apt_argv("apt", "update"), user="root")
     update_output = "\n".join(
         part for part in (update.stdout, update.stderr) if part
     )
@@ -412,11 +441,15 @@ def _apt_update_and_install(name: str, report: InstallReport) -> None:
             "failed to fetch",
             "some index files failed to download",
             "err:",
+            # zh_CN 翻译形态（apt 官方 zh 译法），防 locale 前缀失效
+            "无法下载",
+            "部分索引文件下载失败",
         )
     )
     update_has_hash_error = (
         "hash sum mismatch" in lowered_output
         or "hashes of expected file" in lowered_output
+        or "哈希校验和不符" in update_output
     )
     if not update.ok or update_has_fetch_warning or update_has_hash_error:
         stage, detail = _classify_apt_install_error(
@@ -432,14 +465,16 @@ def _apt_update_and_install(name: str, report: InstallReport) -> None:
     report.add("apt update", "PASS")
 
     for pkg in DIRECT_PACKAGES:
-        policy = distro.exec_distro(name, ["apt-cache", "policy", pkg])
+        policy = distro.exec_distro(name, _apt_argv("apt-cache", "policy", pkg))
         status, detail = _classify_apt_policy_result(policy, pkg)
         if status != "PASS":
             report.add(f"候选复查 {pkg}", status, detail)
             return
         report.add(f"候选复查 {pkg}", "PASS", detail)
 
-    install_cmd = ["apt", "install", "-y", "--no-install-recommends", *DIRECT_PACKAGES]
+    install_cmd = _apt_argv(
+        "apt", "install", "-y", "--no-install-recommends", *DIRECT_PACKAGES
+    )
     install = distro.exec_distro(name, install_cmd, user="root")
     if not install.ok:
         # 安装失败不区分具体哪包，统一用 stderr 分类；注意 apt install 可能一次装多包

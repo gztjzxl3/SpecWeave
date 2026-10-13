@@ -1063,6 +1063,20 @@ class TestInstallPlumbing:
         for m in re.finditer(r"\[(PASS|FAIL|UNKNOWN) {0,4}\]", out):
             assert len(m.group(0)) == 9, f"状态栏宽度不一致：{m.group(0)!r}"
 
+    def test_install_apt_steps_force_c_locale(self, fake_run_wsl):
+        """zh_CN 回归：apt update / policy 复查 / apt install 均须强制 C locale，
+        否则 Candidate 被本地化为「候选：」导致复查误判 UNKNOWN（实机 openKylin 3.0）。"""
+        TestInstallHelpers._install_full_pass(fake_run_wsl)
+        ret = cli.main(["podman", "install", "openKylin-3.0", "--yes"])
+        assert ret == 0
+        joined = "\n".join(" ".join(c) for c in fake_run_wsl.calls)
+        assert "env LC_ALL=C LANGUAGE=C apt update" in joined
+        for pkg in podman.DIRECT_PACKAGES:
+            assert f"env LC_ALL=C LANGUAGE=C apt-cache policy {pkg}" in joined
+        assert (
+            "env LC_ALL=C LANGUAGE=C apt install -y --no-install-recommends" in joined
+        )
+
     def test_unconfirmed_mapping_write_is_not_reported_as_pass(
         self, fake_run_wsl, capsys
     ):

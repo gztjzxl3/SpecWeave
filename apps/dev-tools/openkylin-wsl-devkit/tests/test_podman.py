@@ -293,6 +293,44 @@ class TestPreflightLabels:
             assert len(m.group(0)) == 9, f"状态栏宽度不一致：{m.group(0)!r}"
 
 
+# --- locale 确定性回归 -------------------------------------------------------
+# 实机 openKylin 3.0 默认 zh_CN.UTF-8：apt-cache policy 的「Candidate:」被本地化为
+# 全角「候选：」，曾导致 apt update 成功后候选复查全部误判 UNKNOWN、install 中止。
+
+class TestAptLocaleDeterminism:
+    def test_policy_classifier_parses_zhcn_fullwidth_candidate(self):
+        status, detail = podman._classify_apt_policy(
+            "podman:\n  已安装：(无)\n  候选： 5.7.0+ds2-ok3\n  版本列表：\n",
+            "",
+            "podman",
+        )
+        assert status == "PASS"
+        assert "5.7.0+ds2-ok3" in detail
+
+    def test_policy_classifier_parses_zhcn_halfwidth_candidate(self):
+        status, detail = podman._classify_apt_policy(
+            "podman:\n  候选: 5.7.0\n", "", "podman"
+        )
+        assert status == "PASS" and "5.7.0" in detail
+
+    def test_policy_classifier_zhcn_none_is_missing_fail(self):
+        # zh_CN 下无候选显示为「候选：(无)」
+        status, _detail = podman._classify_apt_policy(
+            "podman:\n  已安装：(无)\n  候选：(无)\n", "", "podman"
+        )
+        assert status == "FAIL"
+
+    def test_preflight_apt_probes_force_c_locale(self, fake_run_wsl):
+        """preflight 的 apt-cache 调用必须带 env LC_ALL=C LANGUAGE=C 前缀。"""
+        TestPreflightReadonlySentinel._install_full_pass(fake_run_wsl)
+        ret = cli.main(["podman", "preflight", "openKylin-3.0"])
+        assert ret == 0
+        joined = "\n".join(" ".join(c) for c in fake_run_wsl.calls)
+        assert "env LC_ALL=C LANGUAGE=C apt-cache --version" in joined
+        for pkg in podman.DIRECT_PACKAGES:
+            assert f"env LC_ALL=C LANGUAGE=C apt-cache policy {pkg}" in joined
+
+
 # --- CLI 层：podman 空子组 + install/verify 未实现占位返回 exit 2 —
 
 class TestPodmanCliPlumbing:

@@ -73,7 +73,8 @@
 - **Notes**: 报告超 1500 行时按 spec Open Question 拆分为原子化目录
 
 ## Task 6: C·落盘提交 — 报告入库与索引刷新
-- **Status**: `in_progress`
+- **Status**: `completed`
+- **Completion Evidence**: 落盘前三查通过——报告位于根 `docs/retrospective/reports/competitive-analysis/retrospective-ai-monetization-20-ways-20261013/README.md`（907 行，与 70+ 同类先例同级），frontmatter 含 `source: "spec:research-ai-monetization-20-ways..."`；2 个模式正式入库 `docs/retrospective/patterns/methodology-patterns/`（threshold-matching-framework.md / platform-dependency-hedging.md，L1-draft，含 TOML 元数据）并更新 index.md 模式清单与 toctree；link-check（check-links.py）本次 3 目标文件 + index.md 零断链；docgen theme-dashboards 刷新 4 个看板 README + update-spec-readme 完成；原子提交 `592d1a2ad`（16 文件，+1776/−193，pre-commit 通过）→ **TR-6.1/6.2 通过**
 - **Priority**: high
 - **Depends On**: Task 5
 - **Description**:

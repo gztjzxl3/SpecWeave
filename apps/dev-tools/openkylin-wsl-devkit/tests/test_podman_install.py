@@ -1077,6 +1077,29 @@ class TestInstallPlumbing:
             "env LC_ALL=C LANGUAGE=C apt install -y --no-install-recommends" in joined
         )
 
+    def test_apt_mutating_steps_use_extended_timeout(self, fake_run_wsl):
+        """慢网回归：apt update / apt install 是写入类长命令，须放宽到
+        APT_MUTATING_TIMEOUT（不低于 300s）；只读 apt-cache policy 探针保持默认
+        60s。否则 podman 全家桶在冷源/慢网下下载解包会被 exec_distro 默认 60s
+        误杀（实机 openKylin 3.0）。"""
+        assert podman.APT_MUTATING_TIMEOUT >= 300
+        TestInstallHelpers._install_full_pass(fake_run_wsl)
+        ret = cli.main(["podman", "install", "openKylin-3.0", "--yes"])
+        assert ret == 0
+
+        mutating, readonly = [], []
+        for argv, timeout in zip(fake_run_wsl.calls, fake_run_wsl.timeouts):
+            joined = " ".join(argv)
+            if "apt update" in joined or "apt install -y" in joined:
+                mutating.append(timeout)
+            elif "apt-cache policy" in joined:
+                readonly.append(timeout)
+        # 必须确实命中 update+install，防止命令改名后断言空过
+        assert len(mutating) == 2
+        assert all(t == podman.APT_MUTATING_TIMEOUT for t in mutating)
+        assert readonly, "应至少出现一次 apt-cache policy 只读探针"
+        assert all(t == 60 for t in readonly)
+
     def test_unconfirmed_mapping_write_is_not_reported_as_pass(
         self, fake_run_wsl, capsys
     ):

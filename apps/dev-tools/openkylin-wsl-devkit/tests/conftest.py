@@ -37,12 +37,17 @@ def fake_run(monkeypatch):
 
 @pytest.fixture
 def fake_run_wsl(monkeypatch):
-    """mock distro.run_wsl：按子串分支返回，记录调用（verify/cli 层用）。"""
+    """mock distro.run_wsl：按子串分支返回，记录调用（verify/cli 层用）。
+
+    除 calls 外并行记录 timeouts（与 calls 等长、逐次对应），供超时契约断言。
+    """
     calls: list[list[str]] = []
+    timeouts: list[int] = []
     script: dict[str, distro.CmdResult] = {}
 
     def _run(args, timeout=60):
         calls.append(args)
+        timeouts.append(timeout)
         joined = " ".join(args)
         for key, result in script.items():
             if key in joined:
@@ -50,4 +55,4 @@ def fake_run_wsl(monkeypatch):
         return make_result(False, 1, "", "发行版不存在", "distro_missing")
 
     monkeypatch.setattr(distro, "run_wsl", _run)
-    return SimpleNamespace(calls=calls, script=script)
+    return SimpleNamespace(calls=calls, timeouts=timeouts, script=script)

@@ -15,6 +15,11 @@ STANDARD_SUBUID_START = 100000
 STANDARD_SUBUID_COUNT = 65536
 STANDARD_SUBUID_END = STANDARD_SUBUID_START + STANDARD_SUBUID_COUNT  # 165536
 
+# apt 写入类步骤（apt update/install）的超时：podman 全家桶含数十个传递依赖，
+# 冷源/慢网下下载+解包+配置常以分钟计；exec_distro 默认 60s 会误杀正常安装。
+# 只读探针（apt-cache --version/policy）仍是秒级命令，保持默认超时。
+APT_MUTATING_TIMEOUT = 600
+
 APT_POLICY_UNKNOWN_HINT = (
     "未知：发行版 APT 索引缺失或已过期，"
     "建议在发行版内先手动执行 sudo apt update 后重跑 preflight"
@@ -430,7 +435,9 @@ def _classify_apt_install_error(stderr: str, package: str, phase: str = "install
 
 def _apt_update_and_install(name: str, report: InstallReport) -> None:
     """执行 apt update → 逐包复查 candidate → apt install 4 直接包。"""
-    update = distro.exec_distro(name, _apt_argv("apt", "update"), user="root")
+    update = distro.exec_distro(
+        name, _apt_argv("apt", "update"), user="root", timeout=APT_MUTATING_TIMEOUT
+    )
     update_output = "\n".join(
         part for part in (update.stdout, update.stderr) if part
     )
@@ -475,7 +482,9 @@ def _apt_update_and_install(name: str, report: InstallReport) -> None:
     install_cmd = _apt_argv(
         "apt", "install", "-y", "--no-install-recommends", *DIRECT_PACKAGES
     )
-    install = distro.exec_distro(name, install_cmd, user="root")
+    install = distro.exec_distro(
+        name, install_cmd, user="root", timeout=APT_MUTATING_TIMEOUT
+    )
     if not install.ok:
         # 安装失败不区分具体哪包，统一用 stderr 分类；注意 apt install 可能一次装多包
         stage, detail = _classify_apt_install_error(install.stderr, DIRECT_PACKAGES[0])

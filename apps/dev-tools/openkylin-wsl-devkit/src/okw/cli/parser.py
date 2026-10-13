@@ -9,7 +9,7 @@
 
 import argparse
 
-from okw import __version__, distro, image
+from okw import __version__, compose, distro, image
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -200,6 +200,90 @@ def build_parser() -> argparse.ArgumentParser:
             "若不存在将直接 FAIL 并提示先在发行版内 podman pull / podman load；"
             "严禁触发任何隐式 registry 拉取。"
         ),
+    )
+
+    # compose 子命令组：preflight / install / verify（rootless podman 的下游引导层）
+    compose_epilog = (
+        "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；"
+        "2=用法错误、preflight/verify 仅 UNKNOWN，或 install 未提供 --yes（零写入）。\n"
+        + compose.LICENSE_NOTICE
+    )
+    p_compose = sub.add_parser(
+        "compose",
+        help="在 rootless Podman 就绪后引导 xuan-compose（xc，GPL-2.0-only 第三方）",
+        description=(
+            "下游引导三步：preflight 只读探测 rootless podman/uv/Python3.14/xc shim；"
+            "install --yes 经用户级 uv（~/.local/bin）托管 Python 3.14 并以 uv tool 安装"
+            " xuan-compose，生成 xc 与 xuan-compose 两个 shim；verify 只读验收双 shim，"
+            "--smoke 在隔离临时目录跑 xc config --quiet 做端到端探活（不起容器不拉镜像）。"
+            "安装源 --source 必填：本地目录 / git+https URL / 包名，okw 不内置任何默认源。"
+        ),
+        epilog=compose_epilog,
+    )
+    # 装配期闭包：`okw compose` 无子命令时回打本子组帮助（退出码在 main 中给 2）。
+    p_compose.set_defaults(_group_help=p_compose.print_help)
+    p_compose_sub = p_compose.add_subparsers(dest="compose_cmd", metavar="<compose_cmd>")
+
+    p_compose_preflight = p_compose_sub.add_parser(
+        "preflight",
+        help="只读预检：rootless podman / uv / 托管 Python3.14 / xc shim / 可选安装源",
+        description=(
+            "只读预检，不下载、不写文件。uv、Python 3.14、xc shim 缺失标 UNKNOWN"
+            "（install 可自动补齐）；结构门与 rootless podman 失败为 FAIL。"
+            "--source 可预检本地目录（校验 pyproject.toml）；URL/包名源不触网，标 UNKNOWN。"
+        ),
+        epilog=compose_epilog,
+    )
+    p_compose_preflight.add_argument("name", help="发行版名称（wsl -l -v 查看）")
+    p_compose_preflight.add_argument(
+        "--source",
+        help="可选：本地目录（Windows 路径自动转 /mnt/<drive>）/ git+https URL / 包名",
+    )
+
+    p_compose_install = p_compose_sub.add_parser(
+        "install",
+        help="经用户级 uv 引导安装 xuan-compose（必须 --yes，--source 必填）",
+        description=(
+            "--yes 且 rootless podman 就绪后：① 缺 uv 则装到 ~/.local/bin（无需 root）；"
+            "② uv python install 3.14 托管独立解释器（不改系统 Python）；"
+            "③ uv tool install 安装 xuan-compose 并生成 xc/xuan-compose 双 shim"
+            "（已装则 --force 幂等；本地源默认拷贝安装，--editable 仅限本地源）；"
+            "④ 全路径执行双 shim version --short 验收。漏 --yes 仅打印副作用清单，零写入。"
+        ),
+        epilog=compose_epilog,
+    )
+    p_compose_install.add_argument("name", help="发行版名称")
+    p_compose_install.add_argument(
+        "--source",
+        required=True,
+        help="必填：本地目录 / git+https 等 URL / PEP503 包名（okw 不内置默认源）",
+    )
+    p_compose_install.add_argument(
+        "--yes",
+        action="store_true",
+        help="显式确认下载与用户级安装副作用（详见子命令 description 四步）",
+    )
+    p_compose_install.add_argument(
+        "--editable",
+        action="store_true",
+        help="本地源以可编辑模式安装（uv tool install --editable）；仅本地目录源允许",
+    )
+
+    p_compose_verify = p_compose_sub.add_parser(
+        "verify",
+        help="验收双 shim 与 rootless 上下文（默认只读；--smoke 做配置解析端到端探活）",
+        description=(
+            "只读检查 rootless podman 与 ~/.local/bin 下 xc、xuan-compose 双 shim 的"
+            " version --short 一致性。--smoke 在 /tmp 隔离目录写最小 compose.yaml 并执行"
+            " xc config --quiet（xc 内部触达 podman info），不起容器、不拉镜像，结束即清理。"
+        ),
+        epilog=compose_epilog,
+    )
+    p_compose_verify.add_argument("name", help="发行版名称")
+    p_compose_verify.add_argument(
+        "--smoke",
+        action="store_true",
+        help="执行隔离临时目录内的 xc config --quiet 端到端探活（非容器冒烟）",
     )
 
     return parser

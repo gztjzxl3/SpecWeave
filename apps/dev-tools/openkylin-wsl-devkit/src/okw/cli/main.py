@@ -24,6 +24,11 @@ def main(argv: list[str] | None = None) -> int:
             args._group_help()
             return 2
         key = f"podman {args.podman_cmd}"
+    elif args.command == "compose":
+        if not args.compose_cmd:
+            args._group_help()
+            return 2
+        key = f"compose {args.compose_cmd}"
     elif args.command == "image":
         if not args.image_cmd:
             args._group_help()

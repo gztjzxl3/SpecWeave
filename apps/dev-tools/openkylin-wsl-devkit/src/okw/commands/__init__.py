@@ -20,6 +20,9 @@ from okw.commands.distro_cmds import (
     cmd_status,
     cmd_unregister,
 )
+from okw.commands.compose_cmds import cmd_install as cmd_compose_install
+from okw.commands.compose_cmds import cmd_preflight as cmd_compose_preflight
+from okw.commands.compose_cmds import cmd_verify as cmd_compose_verify
 from okw.commands.image_cmds import cmd_build as cmd_image_build
 from okw.commands.image_cmds import cmd_verify as cmd_image_verify
 from okw.commands.podman_cmds import cmd_install as cmd_podman_install
@@ -45,6 +48,9 @@ COMMAND_HANDLERS: dict[str, Handler] = {
     "podman preflight": cmd_podman_preflight,
     "podman install": cmd_podman_install,
     "podman verify": cmd_podman_verify,
+    "compose preflight": cmd_compose_preflight,
+    "compose install": cmd_compose_install,
+    "compose verify": cmd_compose_verify,
     "image build": cmd_image_build,
     "image verify": cmd_image_verify,
 }

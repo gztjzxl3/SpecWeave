@@ -1,0 +1,8 @@
+id = "pattern-platform-dependency-hedging"
+title = "平台依赖风险对冲"
+category = "retrospective/patterns/methodology-patterns"
+date = "2026-10-13"
+version = "1.0"
+maturity = "L1"
+validation_count = 1
+reuse_count = 0

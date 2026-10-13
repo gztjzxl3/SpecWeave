@@ -1,0 +1,8 @@
+id = "pattern-threshold-matching-framework"
+title = "三维门槛匹配决策框架"
+category = "retrospective/patterns/methodology-patterns"
+date = "2026-10-13"
+version = "1.0"
+maturity = "L1"
+validation_count = 1
+reuse_count = 0

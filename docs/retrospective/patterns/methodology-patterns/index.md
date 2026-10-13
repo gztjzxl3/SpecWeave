@@ -35,6 +35,8 @@
 | pattern-summary-over-transcription | [摘要替代转录](summary-over-transcription.md) | L2-validated | 2 | 0 | 扫描版版权书籍（纯图像或图像+噪声OCR混合型）转教程/知识包时：route 决策前置、多模态通读、深度摘要+原创改写替代逐字转录。案例1《管道的故事》、案例2《魔力》（混合型PDF+练习册体裁） |
 | pattern-compliance-contracting | [合规契约化](compliance-contracting.md) | L2-validated | 2 | 0 | 版权引用/数据脱敏等合规红线需经他人审查时：态度式约束翻译为可度量契约（数字/正则/清单+计数口径），三段式声明、按契约打勾；含"作者主张—客观事实"分层第二契约轴。案例1《管道的故事》、案例2《魔力》 |
 | bp-doc-automation-pipeline | [文档自动化生成与验证流水线模式](concepts/doc-automation-pipeline.md)（简称：文档流水线模式） | L1-draft | 1 | 0 | 文档规模扩大后（经验阈值约 500 条目，非测量值），以统一元数据规范+自动化脚本（模板生成/链接验证/索引生成）+质量门禁构成生成-验证流水线，突破人工维护索引的规模瓶颈；含多生产者契约漂移等 5 条反模式。案例：SpecWeave 智能文档系统 1288 条目 |
+| pattern-threshold-matching-framework | [三维门槛匹配决策框架](threshold-matching-framework.md) | L1-draft | 1 | 0 | 个人/小团队面对 ≥3 个可选变现或副业方案需按资金×技能×时间禀赋理性选型时。案例：AI 变现 20 方案调研 |
+| pattern-platform-dependency-hedging | [平台依赖风险对冲](platform-dependency-hedging.md) | L1-draft | 1 | 0 | 方案主要分发或变现依赖单一第三方平台需评估并降低单点依赖时。案例：AI 变现 20 方案调研 |
 
 ## 成熟度等级说明
 
@@ -81,7 +83,9 @@ compliance-contracting
 destructive-probe-gate
 history-based-doc-repair
 log
+platform-dependency-hedging
 preflight-integrity-gate
 prompt-extraction
 summary-over-transcription
+threshold-matching-framework
 ```

@@ -363,16 +363,15 @@ standards-tools/
 | 38 | [myst-to-agentspec-migration-analysis](myst-to-agentspec-migration-analysis/spec.md) | ✓ 完成 | ✓/✗ |
 | 39 | [myst-unified-interface-ecosystem](myst-unified-interface-ecosystem/spec.md) | ✓ 完成 | ✓/✗ |
 | 40 | [optimize-trae-project-adaptation](optimize-trae-project-adaptation/spec.md) | ✓ 完成 | ✓/✗ |
-| 41 | [pdf-to-markdown-conversion-research](pdf-to-markdown-conversion-research/spec.md) | ? 待启动 | ✓✗✗ |
-| 42 | [ps1-syntax-crossplatform](ps1-syntax-crossplatform/spec.md) | ✓ 完成 | ✓/✗ |
-| 43 | [ratchet-mermaid-ci-historical-debt](ratchet-mermaid-ci-historical-debt/spec.md) | ✓ 完成 | ✓✗✗ |
-| 44 | [refactor-scripts-shared-lib](refactor-scripts-shared-lib/spec.md) | ✓ 完成 | ✓/✗ |
-| 45 | [sensitive-info-sanitization-audit](sensitive-info-sanitization-audit/spec.md) | ✓ 完成 | ✓/✗ |
-| 46 | [setup-npu-tvm-build-env](setup-npu-tvm-build-env/spec.md) | ✓ 完成 | ✓/✗ |
-| 47 | [spec-standards-enhancement](spec-standards-enhancement/spec.md) | ✓ 完成 | ✓/✗ |
-| 48 | [sphinx-config-mystx-extraction](sphinx-config-mystx-extraction/spec.md) | ✓ 完成 | ✓/✗ |
-| 49 | [standardize-file-naming-convention](standardize-file-naming-convention/spec.md) | ✓ 完成 | ✓/✗ |
-| 50 | [update-frontmatter-scripts-compat](update-frontmatter-scripts-compat/spec.md) | ? 待启动 | ✓/✗ |
-| 51 | [update-sunlogin-wiki-mobile-control](update-sunlogin-wiki-mobile-control/spec.md) | ✓ 完成 | ✓/✗ |
+| 41 | [ps1-syntax-crossplatform](ps1-syntax-crossplatform/spec.md) | ✓ 完成 | ✓/✗ |
+| 42 | [ratchet-mermaid-ci-historical-debt](ratchet-mermaid-ci-historical-debt/spec.md) | ✓ 完成 | ✓✗✗ |
+| 43 | [refactor-scripts-shared-lib](refactor-scripts-shared-lib/spec.md) | ✓ 完成 | ✓/✗ |
+| 44 | [sensitive-info-sanitization-audit](sensitive-info-sanitization-audit/spec.md) | ✓ 完成 | ✓/✗ |
+| 45 | [setup-npu-tvm-build-env](setup-npu-tvm-build-env/spec.md) | ✓ 完成 | ✓/✗ |
+| 46 | [spec-standards-enhancement](spec-standards-enhancement/spec.md) | ✓ 完成 | ✓/✗ |
+| 47 | [sphinx-config-mystx-extraction](sphinx-config-mystx-extraction/spec.md) | ✓ 完成 | ✓/✗ |
+| 48 | [standardize-file-naming-convention](standardize-file-naming-convention/spec.md) | ✓ 完成 | ✓/✗ |
+| 49 | [update-frontmatter-scripts-compat](update-frontmatter-scripts-compat/spec.md) | ? 待启动 | ✓/✗ |
+| 50 | [update-sunlogin-wiki-mobile-control](update-sunlogin-wiki-mobile-control/spec.md) | ✓ 完成 | ✓/✗ |
 
 <!-- THEME_DASHBOARD_END -->

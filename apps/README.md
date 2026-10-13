@@ -133,11 +133,12 @@ apps/<group>/<app-name>/
 | `containers/` | containers/ — Podman rootless 容器工作区分组 | [README.md](containers/README.md) |
 | `dev-tools/` | dev-tools 应用 | `dev-tools/`（暂无 README） |
 | `docker-images/` | docker-images 应用 | `docker-images/`（暂无 README） |
+| `guard-quality-life-site/` | 守护品质生活（guard-quality-life-site） | [README.md](guard-quality-life-site/README.md) |
 | `inurl-byok-token-hub/` | BYOK 统一令牌枢纽复刻：E2EE 密钥保险库 + 逻辑别名路由 + 本地三协议代理 + 用量计费。 | [README.md](inurl-byok-token-hub/README.md) |
-| `guard-quality-life-site/` | 《守护品质生活》生活方式方案库可变现 MVP 网站：Python 3.14+ / FastAPI 动态 Web，11 域知识树浏览/搜索 + 订阅兴趣登记 + 推荐位占位 + 访问埋点三验证信号，暖灰纸感 UI（gqlsite）。 | [README.md](guard-quality-life-site/README.md) |
 | `samples/` | samples 应用 | `samples/`（暂无 README） |
 | `tests/` | tests 应用 | `tests/`（暂无 README） |
 | `travel-planner/` | 本地单用户 Web 应用：多行程管理、每日行程编排、预算跟踪、打包清单、JSON 导入导出，以及可选的 **BYOK AI 行程草稿生成**（任意 Ope... | [README.md](travel-planner/README.md) |
+| `zxl-kb-wiki/` | zxl-kb-wiki 应用 | `zxl-kb-wiki/`（暂无 README） |
 
 <!-- APPS_TABLE_END -->
 

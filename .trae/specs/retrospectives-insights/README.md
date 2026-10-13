@@ -321,22 +321,22 @@ retrospectives-insights/
 | 58 | [analyze-wechat-article-1nNIr](analyze-wechat-article-1nNIr/spec.md) | ✓ 完成 | ✓/✗ |
 | 59 | [analyze-wechat-article-3dnk](analyze-wechat-article-3dnk/spec.md) | ✓ 完成 | ✓/✗ |
 | 60 | [analyze-wechat-article-7a2l](analyze-wechat-article-7a2l/spec.md) | ✓ 完成 | ✓/✗ |
-| 61 | [analyze-wechat-article-E2FXmFb](analyze-wechat-article-E2FXmFb/spec.md) | ✓ 完成 | ✓/✗ |
-| 62 | [analyze-wechat-article-Vykbw](analyze-wechat-article-Vykbw/spec.md) | ✓ 完成 | ✓/✗ |
-| 63 | [analyze-wechat-article-Z-aZDvW0](analyze-wechat-article-Z-aZDvW0/spec.md) | ✓ 完成 | ✓/✗ |
-| 64 | [analyze-wechat-article-agent-browser](analyze-wechat-article-agent-browser/spec.md) | ✓ 完成 | ✓/✗ |
-| 65 | [analyze-wechat-article-agent-harness](analyze-wechat-article-agent-harness/spec.md) | ✓ 完成 | ✓✗✗ |
-| 66 | [analyze-wechat-article-agnes-free-api](analyze-wechat-article-agnes-free-api/spec.md) | ✓ 完成 | ✓/✗ |
-| 67 | [analyze-wechat-article-ai-switch-governance](analyze-wechat-article-ai-switch-governance/spec.md) | ✓ 完成 | ✓/✗ |
-| 68 | [analyze-wechat-article-anthropic-token-role-split](analyze-wechat-article-anthropic-token-role-split/spec.md) | ✓ 完成 | ✓/✗ |
-| 69 | [analyze-wechat-article-causal-ai](analyze-wechat-article-causal-ai/spec.md) | ✓ 完成 | ✓/✗ |
-| 70 | [analyze-wechat-article-dy98](analyze-wechat-article-dy98/spec.md) | ✓ 完成 | ✓/✗ |
-| 71 | [analyze-wechat-article-eeb14](analyze-wechat-article-eeb14/spec.md) | ✓ 完成 | ✓/✗ |
-| 72 | [analyze-wechat-article-eve](analyze-wechat-article-eve/spec.md) | ✓ 完成 | ✓/✗ |
-| 73 | [analyze-wechat-article-kicrd](analyze-wechat-article-kicrd/spec.md) | ✓ 完成 | ✓/✗ |
-| 74 | [analyze-wechat-article-nglw6zYVjFEzM6boqn6uyg](analyze-wechat-article-nglw6zYVjFEzM6boqn6uyg/spec.md) | ✓ 完成 | ✓/✗ |
-| 75 | [analyze-wechat-article-rqndd](analyze-wechat-article-rqndd/spec.md) | ✓ 完成 | ✓/✗ |
-| 76 | [analyze-wechat-article-wps-comate](analyze-wechat-article-wps-comate/spec.md) | ✓ 完成 | ✓/✗ |
+| 61 | [analyze-wechat-article-agent-browser](analyze-wechat-article-agent-browser/spec.md) | ✓ 完成 | ✓/✗ |
+| 62 | [analyze-wechat-article-agent-harness](analyze-wechat-article-agent-harness/spec.md) | ✓ 完成 | ✓✗✗ |
+| 63 | [analyze-wechat-article-agnes-free-api](analyze-wechat-article-agnes-free-api/spec.md) | ✓ 完成 | ✓/✗ |
+| 64 | [analyze-wechat-article-ai-switch-governance](analyze-wechat-article-ai-switch-governance/spec.md) | ✓ 完成 | ✓/✗ |
+| 65 | [analyze-wechat-article-anthropic-token-role-split](analyze-wechat-article-anthropic-token-role-split/spec.md) | ✓ 完成 | ✓/✗ |
+| 66 | [analyze-wechat-article-causal-ai](analyze-wechat-article-causal-ai/spec.md) | ✓ 完成 | ✓/✗ |
+| 67 | [analyze-wechat-article-dy98](analyze-wechat-article-dy98/spec.md) | ✓ 完成 | ✓/✗ |
+| 68 | [analyze-wechat-article-E2FXmFb](analyze-wechat-article-E2FXmFb/spec.md) | ✓ 完成 | ✓/✗ |
+| 69 | [analyze-wechat-article-eeb14](analyze-wechat-article-eeb14/spec.md) | ✓ 完成 | ✓/✗ |
+| 70 | [analyze-wechat-article-eve](analyze-wechat-article-eve/spec.md) | ✓ 完成 | ✓/✗ |
+| 71 | [analyze-wechat-article-kicrd](analyze-wechat-article-kicrd/spec.md) | ✓ 完成 | ✓/✗ |
+| 72 | [analyze-wechat-article-nglw6zYVjFEzM6boqn6uyg](analyze-wechat-article-nglw6zYVjFEzM6boqn6uyg/spec.md) | ✓ 完成 | ✓/✗ |
+| 73 | [analyze-wechat-article-rqndd](analyze-wechat-article-rqndd/spec.md) | ✓ 完成 | ✓/✗ |
+| 74 | [analyze-wechat-article-Vykbw](analyze-wechat-article-Vykbw/spec.md) | ✓ 完成 | ✓/✗ |
+| 75 | [analyze-wechat-article-wps-comate](analyze-wechat-article-wps-comate/spec.md) | ✓ 完成 | ✓/✗ |
+| 76 | [analyze-wechat-article-Z-aZDvW0](analyze-wechat-article-Z-aZDvW0/spec.md) | ✓ 完成 | ✓/✗ |
 | 77 | [analyze-wechat-copilot-deepseek-multimodel](analyze-wechat-copilot-deepseek-multimodel/spec.md) | ✓ 完成 | ✓/✗ |
 | 78 | [analyze-workbuddy-harness-seven-concepts](analyze-workbuddy-harness-seven-concepts/spec.md) | ✓ 完成 | ✓/✗ |
 | 79 | [analyze-wsl-containers-wechat-article](analyze-wsl-containers-wechat-article/spec.md) | ✓ 完成 | ✓/✗ |
@@ -433,6 +433,7 @@ retrospectives-insights/
 | 170 | [web-content-analysis](web-content-analysis/spec.md) | ? 待启动 | ✓/✗ |
 | 171 | [wiki-baidu-unlimited-ocr](wiki-baidu-unlimited-ocr/spec.md) | ✓ 完成 | ✓/✗ |
 | 172 | [xmtools-comprehensive-retrospective-export](xmtools-comprehensive-retrospective-export/spec.md) | ✓ 完成 | ✓/✗ |
-| 173 | [zleap-agent-harness-learning-analysis](zleap-agent-harness-learning-analysis/spec.md) | ✓ 完成 | ✓/✗ |
+| 173 | [xuanspace-comprehensive-retrospective-export](xuanspace-comprehensive-retrospective-export/spec.md) | ✓ 完成 | ✓/✗ |
+| 174 | [zleap-agent-harness-learning-analysis](zleap-agent-harness-learning-analysis/spec.md) | ✓ 完成 | ✓/✗ |
 
 <!-- THEME_DASHBOARD_END -->

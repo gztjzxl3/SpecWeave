@@ -93,6 +93,12 @@
           "dest": "podman",
           "metavar": "podman",
           "help": "openKylin 发行版内 rootless Podman 预检、安装与验收"
+        },
+        {
+          "option_strings": [],
+          "dest": "compose",
+          "metavar": "compose",
+          "help": "在 rootless Podman 就绪后引导 xuan-compose（xc，GPL-2.0-only 第三方）"
         }
       ],
       "choices": [
@@ -692,6 +698,170 @@
                           "metavar": "LOCAL_IMAGE",
                           "help": "存在本地的可用镜像名（REPOSITORY:TAG / 镜像 ID），若不存在将直接 FAIL 并提示先在发行版内 podman pull / podman load；严禁触发任何隐式 registry 拉取。",
                           "default": "None"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "compose",
+          "parser": {
+            "prog": "okw compose",
+            "description": "下游引导三步：preflight 只读探测 rootless podman/uv/Python3.14/xc shim；install --yes 经用户级 uv（~/.local/bin）托管 Python 3.14 并以 uv tool 安装 xuan-compose，生成 xc 与 xuan-compose 两个 shim；verify 只读验收双 shim，--smoke 在隔离临时目录跑 xc config --quiet 做端到端探活（不起容器不拉镜像）。安装源 --source 必填：本地目录 / git+https URL / 包名，okw 不内置任何默认源。",
+            "epilog": "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；2=用法错误、preflight/verify 仅 UNKNOWN，或 install 未提供 --yes（零写入）。\n许可证边界：xuan-compose（命令 xc）为 GPL-2.0-only 第三方软件，不随 okw 分发、也不与 okw 源码链接；okw 仅在你显式授权后，于目标发行版内按你指定的来源引导安装，其源码与许可证文本以安装源项目为准。",
+            "actions": [
+              {
+                "kind": "_SubParsersAction",
+                "option_strings": [],
+                "dest": "compose_cmd",
+                "nargs": "A...",
+                "required": false,
+                "metavar": "<compose_cmd>",
+                "help": null,
+                "default": "None",
+                "subparsers_dest": "compose_cmd",
+                "subparsers_metavar": "<compose_cmd>",
+                "choice_helps": [
+                  {
+                    "option_strings": [],
+                    "dest": "preflight",
+                    "metavar": "preflight",
+                    "help": "只读预检：rootless podman / uv / 托管 Python3.14 / xc shim / 可选安装源"
+                  },
+                  {
+                    "option_strings": [],
+                    "dest": "install",
+                    "metavar": "install",
+                    "help": "经用户级 uv 引导安装 xuan-compose（必须 --yes，--source 必填）"
+                  },
+                  {
+                    "option_strings": [],
+                    "dest": "verify",
+                    "metavar": "verify",
+                    "help": "验收双 shim 与 rootless 上下文（默认只读；--smoke 做配置解析端到端探活）"
+                  }
+                ],
+                "choices": [
+                  {
+                    "name": "preflight",
+                    "parser": {
+                      "prog": "okw compose preflight",
+                      "description": "只读预检，不下载、不写文件。uv、Python 3.14、xc shim 缺失标 UNKNOWN（install 可自动补齐）；结构门与 rootless podman 失败为 FAIL。--source 可预检本地目录（校验 pyproject.toml）；URL/包名源不触网，标 UNKNOWN。",
+                      "epilog": "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；2=用法错误、preflight/verify 仅 UNKNOWN，或 install 未提供 --yes（零写入）。\n许可证边界：xuan-compose（命令 xc）为 GPL-2.0-only 第三方软件，不随 okw 分发、也不与 okw 源码链接；okw 仅在你显式授权后，于目标发行版内按你指定的来源引导安装，其源码与许可证文本以安装源项目为准。",
+                      "actions": [
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [],
+                          "dest": "name",
+                          "nargs": null,
+                          "required": true,
+                          "metavar": null,
+                          "help": "发行版名称（wsl -l -v 查看）",
+                          "default": "None"
+                        },
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [
+                            "--source"
+                          ],
+                          "dest": "source",
+                          "nargs": null,
+                          "required": false,
+                          "metavar": null,
+                          "help": "可选：本地目录（Windows 路径自动转 /mnt/<drive>）/ git+https URL / 包名",
+                          "default": "None"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "install",
+                    "parser": {
+                      "prog": "okw compose install",
+                      "description": "--yes 且 rootless podman 就绪后：① 缺 uv 则装到 ~/.local/bin（无需 root）；② uv python install 3.14 托管独立解释器（不改系统 Python）；③ uv tool install 安装 xuan-compose 并生成 xc/xuan-compose 双 shim（已装则 --force 幂等；本地源默认拷贝安装，--editable 仅限本地源）；④ 全路径执行双 shim version --short 验收。漏 --yes 仅打印副作用清单，零写入。",
+                      "epilog": "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；2=用法错误、preflight/verify 仅 UNKNOWN，或 install 未提供 --yes（零写入）。\n许可证边界：xuan-compose（命令 xc）为 GPL-2.0-only 第三方软件，不随 okw 分发、也不与 okw 源码链接；okw 仅在你显式授权后，于目标发行版内按你指定的来源引导安装，其源码与许可证文本以安装源项目为准。",
+                      "actions": [
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [],
+                          "dest": "name",
+                          "nargs": null,
+                          "required": true,
+                          "metavar": null,
+                          "help": "发行版名称",
+                          "default": "None"
+                        },
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [
+                            "--source"
+                          ],
+                          "dest": "source",
+                          "nargs": null,
+                          "required": true,
+                          "metavar": null,
+                          "help": "必填：本地目录 / git+https 等 URL / PEP503 包名（okw 不内置默认源）",
+                          "default": "None"
+                        },
+                        {
+                          "kind": "_StoreTrueAction",
+                          "option_strings": [
+                            "--yes"
+                          ],
+                          "dest": "yes",
+                          "nargs": 0,
+                          "required": false,
+                          "metavar": null,
+                          "help": "显式确认下载与用户级安装副作用（详见子命令 description 四步）",
+                          "default": "False"
+                        },
+                        {
+                          "kind": "_StoreTrueAction",
+                          "option_strings": [
+                            "--editable"
+                          ],
+                          "dest": "editable",
+                          "nargs": 0,
+                          "required": false,
+                          "metavar": null,
+                          "help": "本地源以可编辑模式安装（uv tool install --editable）；仅本地目录源允许",
+                          "default": "False"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "verify",
+                    "parser": {
+                      "prog": "okw compose verify",
+                      "description": "只读检查 rootless podman 与 ~/.local/bin 下 xc、xuan-compose 双 shim 的 version --short 一致性。--smoke 在 /tmp 隔离目录写最小 compose.yaml 并执行 xc config --quiet（xc 内部触达 podman info），不起容器、不拉镜像，结束即清理。",
+                      "epilog": "退出码：0=全部 PASS；1=存在 FAIL（按报告中的中文指引修复后重试）；2=用法错误、preflight/verify 仅 UNKNOWN，或 install 未提供 --yes（零写入）。\n许可证边界：xuan-compose（命令 xc）为 GPL-2.0-only 第三方软件，不随 okw 分发、也不与 okw 源码链接；okw 仅在你显式授权后，于目标发行版内按你指定的来源引导安装，其源码与许可证文本以安装源项目为准。",
+                      "actions": [
+                        {
+                          "kind": "_StoreAction",
+                          "option_strings": [],
+                          "dest": "name",
+                          "nargs": null,
+                          "required": true,
+                          "metavar": null,
+                          "help": "发行版名称",
+                          "default": "None"
+                        },
+                        {
+                          "kind": "_StoreTrueAction",
+                          "option_strings": [
+                            "--smoke"
+                          ],
+                          "dest": "smoke",
+                          "nargs": 0,
+                          "required": false,
+                          "metavar": null,
+                          "help": "执行隔离临时目录内的 xc config --quiet 端到端探活（非容器冒烟）",
+                          "default": "False"
                         }
                       ]
                     }

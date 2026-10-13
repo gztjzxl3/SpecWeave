@@ -1,0 +1,13 @@
+id = "temp-directory-recoverability-triage"
+domain = "governance"
+layer = "methodology"
+maturity = "L1-draft"
+validation_count = 1
+reuse_count = 0
+documentation_level = "detailed"
+source = "docs/retrospective/patterns/methodology-patterns/governance-strategy/temp-directory-recoverability-triage.md"
+
+[bindings]
+rules = []
+references = ["wsl-docker-storage-cleanup-five-step-method", "knowledge-lifecycle-extract-archive-delete", "classification-disposition-decision-tree", "no-touch-list", "entropy-law-automation-principle", "three-state-decision"]
+skills = []

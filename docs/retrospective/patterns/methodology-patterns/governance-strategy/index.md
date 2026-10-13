@@ -149,6 +149,7 @@ symmetric-directory-structure
 task-type-first-indexing
 tech-selection-three-checks
 technical-debt-workaround-tracking
+temp-directory-recoverability-triage
 template-cross-platform-validation
 template-placeholder-granularity-design
 test-coverage-diminishing-returns

@@ -28,6 +28,7 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 # 已完成 PEP 563 整改、任何时候都不得加回 future import 的文件（相对 .agents/scripts）
 _GUARDED_FILES = [
     _SCRIPTS_ROOT / "lib" / "python310_version_check.py",
+    _SCRIPTS_ROOT / "temp-triage.py",
 ]
 
 # 防止路径写错导致守护空转（收集期即失败）

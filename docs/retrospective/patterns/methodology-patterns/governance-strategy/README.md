@@ -168,6 +168,7 @@ date: "2026-07-09"
 | [任务类型优先索引模式（Task-Type-First Indexing）](./task-type-first-indexing.md) | 任务类型优先索引模式（Task-Type-First Indexing） | L1 |  |
 | [技术选型「偏好-惯例-本质」三查法（Preference-Convention-Essence Three Checks）](./tech-selection-three-checks.md) | 技术选型「偏好-惯例-本质」三查法（Preference-Convention-Essence Three Checks） | L2 | `decision-making` `tech-selection` `three-checks` |
 | [权宜之计技术债追踪（Technical Debt Workaround Tracking）](./technical-debt-workaround-tracking.md) | 权宜之计技术债追踪（Technical Debt Workaround Tracking） | L1 | `技术债` `权宜之计` `临时方案` |
+| [临时目录「可再生分级」清理法](./temp-directory-recoverability-triage.md) | 清理混合资产临时区时，不按文件类型/日期而按「删除后能否恢复、恢复代价」分四类可删资产（缓存自重建/过期产物/外部副本/已闭环残留）与一类在途裁决资产，高回收零误删 | L1-draft | `临时目录` `清理` `可再生性` `分组处置` `防误删` |
 | [模板跨平台验证模式（Template Cross-Platform Validation）](./template-cross-platform-validation.md) | 模板跨平台验证模式（Template Cross-Platform Validation） | - |  |
 | [模板占位符的粒度设计原则](./template-placeholder-granularity-design.md) | 模板占位符的粒度设计原则 | L2 |  |
 | [测试覆盖率边际收益递减拐点](./test-coverage-diminishing-returns.md) | 测试覆盖率边际收益递减拐点 | L1 |  |

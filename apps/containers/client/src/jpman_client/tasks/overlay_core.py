@@ -58,7 +58,9 @@ from .utils import (
     check_runtime_ready,
     default_build_cache_dir,
     detect_runtime,
+    ensure_bind_tree_accessible,
     ensure_workspace_checkpoint_writable,
+    ensure_world_writable_dir,
     ensure_wsl_rootless_runtime,
     ensure_wsl_user_session,
     find_latest_image_tar,
@@ -137,6 +139,9 @@ class SourceMount:
     - must_exist：是否做宿主存在性硬校验（源码树 True：缺失 Exit 1）；
       False = temp 类目录，缺失时幂等 mkdir（与 workspace 同语义），
       默认相对路径可经 ``..`` 上溯锚点之外的宿主目录。
+    - writable：容器内 devuser 是否需要对该树**写**权限（prepare_env 权限
+      门禁据此放宽到 a+rwX/777 或仅 a+rX/755）。models 等纯数据树设 False；
+      temp 类挂载由 ensure_world_writable_dir 只放宽根目录（非递归）。
     """
 
     env: str
@@ -144,6 +149,7 @@ class SourceMount:
     label: str
     anchor: str = "repo"  # "repo" | "client"
     must_exist: bool = True
+    writable: bool = True
 
 
 @dataclass(frozen=True)
@@ -425,7 +431,7 @@ def prepare_env(spec: StackSpec) -> dict:
             or env.get(mount.env)
             or str((base / mount.default_rel).resolve())
         )
-        os.environ[mount.env] = _resolve_path(
+        resolved = _resolve_path(
             spec,
             raw,
             must_exist=mount.must_exist,
@@ -433,6 +439,23 @@ def prepare_env(spec: StackSpec) -> dict:
             label=mount.label,
             env_key=mount.env,
         )
+        os.environ[mount.env] = resolved
+        # bind 源树 other 位可访问性契约（C-I12）：容器 devuser（固定 UID1000）
+        # 经 other 位访问宿主挂载树，宿主侧 0700 检出会让 pip/Jupyter 以
+        # Errno 13 失败。prepare_env 是 build/up/smoke 的共同咽喉点，在此
+        # 幂等放宽（仅权限位、POSIX、失败不阻断；Windows/9p 由函数内跳过并
+        # 给出 W-I19 指引）。temp 类只放宽根目录，子项由 devuser 自建自属。
+        if mount.must_exist:
+            ensure_bind_tree_accessible(
+                resolved,
+                writable=mount.writable,
+                label=mount.label,
+                namespace=spec.namespace,
+            )
+        else:
+            ensure_world_writable_dir(
+                resolved, label=mount.label, namespace=spec.namespace
+            )
 
     return env
 

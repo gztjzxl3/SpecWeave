@@ -71,6 +71,7 @@ defensive-config-cache-deepcopy
 delegated-rendering-risk-governance
 dependency-update-risk-control
 destruction-protection-isolation
+dev-container-image-construction-discipline
 direct-file-write-over-shell-pipe
 directive-state-machine-parsing
 docker-apt-layer-slimming

@@ -76,7 +76,8 @@ NATIVE_SPEC = StackSpec(
     source_mounts=(
         SourceMount("NPU_TVM_PATH", "external/chaos/npu_tvm", "npu_tvm 源码树（含 python/tvm）"),
         SourceMount("NPUUSERTOOLS_PATH", "external/containers/workspace/dev/npuusertools", "npuusertools 源码树（含 xmnn 包）"),
-        SourceMount("MODELS_PATH", "external/chaos/models", "模型目录"),
+        # 模型为纯数据树：权限门禁只放宽到只读 a+rX/755（devuser 无需写位）
+        SourceMount("MODELS_PATH", "external/chaos/models", "模型目录", writable=False),
         SourceMount("NATIVE_PROJECTS_PATH", "projects", "第一方子项目（projects/，git submodule）"),
         # 临时目录（/workspace/temp）：缺省锚仓库根上溯四级 = 根工作区 .temp；must_exist=False（追加在末尾：既有用例锁 source_mounts[0]）。
         SourceMount("NATIVE_TEMP_PATH", "../../../../.temp", "临时目录（根工作区 .temp）", must_exist=False),

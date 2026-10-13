@@ -18,6 +18,7 @@ source: "../../../../apps/dev-tools/openkylin-wsl-devkit/README.md#定位"
 | 配置并验收 rootless Podman | [rootless Podman 指南](03-podman-rootless.md) |
 | 了解设计、安全边界、开发和测试 | [开发与边界](04-development-and-boundaries.md) |
 | 构建并使用 openKylin 开发容器镜像 | [openKylin 开发容器镜像指南](05-openkylin-dev-container.md) |
+| 在 rootless Podman 之上引导 xuan-compose（xc） | [xuan-compose（xc）引导指南](06-xuan-compose.md) |
 
 ## 能力概览
 
@@ -28,6 +29,7 @@ source: "../../../../apps/dev-tools/openkylin-wsl-devkit/README.md#定位"
 | deb 打包与 OKBS 上传配置 | `okw scaffold deb`、`okw scaffold dput` |
 | 知识库快速参考 | `okw ref <主题>` |
 | rootless Podman 工作流 | `okw podman preflight`、`install`、`verify` |
+| xuan-compose（xc）下游引导 | `okw compose preflight`、`install`、`verify`（GPL-2.0-only 第三方，需 `--source` 与 `--yes`） |
 
 本工具不替代系统级 WSL 安装、不自动下载发行版镜像、不调用 OKBS/factory API，也不修改 openKylin 知识库。Desktop WSL 的运行时结论仍以对应实测资料为准；本工具不固化未验证建议。
 
@@ -45,4 +47,5 @@ source: "../../../../apps/dev-tools/openkylin-wsl-devkit/README.md#定位"
 03-podman-rootless
 04-development-and-boundaries
 05-openkylin-dev-container
+06-xuan-compose
 ```

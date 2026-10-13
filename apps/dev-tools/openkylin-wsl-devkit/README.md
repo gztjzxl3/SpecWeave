@@ -12,6 +12,7 @@ openKylin WSL 开发工具包：通过 `okw` 管理 WSL 发行版、验收 openK
 - [rootless Podman 指南](../../../docs/tech/guides/openkylin-wsl-devkit/03-podman-rootless.md)
 - [开发、测试与边界](../../../docs/tech/guides/openkylin-wsl-devkit/04-development-and-boundaries.md)
 - [openKylin 开发容器镜像指南](../../../docs/tech/guides/openkylin-wsl-devkit/05-openkylin-dev-container.md)
+- [xuan-compose（xc）引导指南](../../../docs/tech/guides/openkylin-wsl-devkit/06-xuan-compose.md)
 
 ## openKylin 开发容器镜像
 
@@ -53,3 +54,20 @@ okw podman verify <name>
 ```
 
 `okw podman verify --smoke-image` 仅使用发行版内已存在的镜像，不会隐式拉取。完整约束与操作说明见[工具包指南](../../../docs/tech/guides/openkylin-wsl-devkit/index.md)。
+
+## xuan-compose（xc）引导
+
+rootless Podman 就绪后，可用 `okw compose` 在同一发行版内以普通用户身份引导 [xuan-compose](https://github.com/xinetzone/xuanspace/tree/main/libs/xuan-compose)（`xinetzone/xuanspace` monorepo 的 `libs/xuan-compose` 子目录，命令 `xc`），串起「WSL 发行版 → rootless Podman → compose」完整链路：
+
+```text
+okw podman  preflight <name>
+okw podman  install   <name> --yes
+okw podman  verify    <name>
+okw compose preflight <name> --source <本地目录|URL|包名>
+okw compose install   <name> --yes --source <本地目录|URL|包名>
+okw compose verify    <name> --smoke
+```
+
+`compose install` 经用户级 uv（`~/.local/bin`）托管一份独立 CPython 3.14（不改系统 Python 3.12），再 `uv tool install --python 3.14` 安装 xuan-compose 并生成 `xc`/`xuan-compose` 双 shim；`--source` 必填且无内置默认源，本地源默认拷贝安装（`--editable` 仅限本地源）；缺 `--yes` 仅打印副作用清单、零写入。
+
+> **许可证边界**：xuan-compose 是 **GPL-2.0-only** 第三方软件。okw（MIT）不 import、不复制、不链接、不分发其源码或制品，仅在用户显式授权后，于用户本机按用户指定来源做 CLI 聚合引导（与 `apt` 安装 GPL 包同理）。详见[xuan-compose（xc）引导指南](../../../docs/tech/guides/openkylin-wsl-devkit/06-xuan-compose.md)。

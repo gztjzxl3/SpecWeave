@@ -70,6 +70,23 @@ okw image verify openKylin-3.0-desktop
 
 容器运行契约与镜像详情见 [openKylin 开发容器指南](05-openkylin-dev-container.md)。
 
+## xuan-compose（xc）下游引导
+
+`okw compose` 在 rootless Podman 就绪后，以默认普通用户身份经用户级 uv 引导 xuan-compose（`xc`），并生成 `xuan-compose`/`xc` 双 shim：
+
+```text
+okw compose preflight <name> [--source <来源>]
+okw compose install  <name> --source <来源> --yes [--editable]
+okw compose verify   <name> [--smoke]
+```
+
+- `--source` **必填**且无内置默认值，自动归类为本地目录（Windows 路径转 `/mnt/<drive>/...`，校验 `pyproject.toml`，默认拷贝安装）、`git+https` 等 URL/VCS（原样交 uv，不触网预检），或 PEP 503 包名；畸形来源以退出码 2 拒绝且零 WSL 调用。`--editable` 仅限本地源。
+- `install` 必须 `--yes`：缺省时只打印四步副作用清单与 GPL 声明（退出码 2，零写入）。安装把 uv 置于 `~/.local/bin`、把 CPython 3.14 交 uv 托管（不改系统 Python），再 `uv tool install --python 3.14`；已登记则 `--force` 幂等重装。
+- `verify` 全路径比对双 shim 的 `version --short`；`--smoke` 在 `/tmp/okw-smoke-*` 隔离目录写最小 `compose.yaml` 跑 `xc config --quiet` 做端到端探活，不起容器、不拉镜像，前置有 FAIL 则跳过。
+- 退出码 `0` 全通过 / `1` 有 FAIL / `2` 用法错误、仅 UNKNOWN 或缺 `--yes`。
+
+> 许可证边界：xuan-compose 为 **GPL-2.0-only** 第三方软件，okw（MIT）不 import、不复制、不分发，仅在你显式授权后按你指定来源在本机引导安装。完整机制、镜像环境变量与常见问题见 [xuan-compose（xc）引导指南](06-xuan-compose.md)。
+
 ## 知识库参考
 
 ```text

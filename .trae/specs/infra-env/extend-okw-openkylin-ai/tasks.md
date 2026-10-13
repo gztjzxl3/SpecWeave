@@ -107,6 +107,38 @@ source: ".trae/specs/infra-env/extend-okw-openkylin-ai/spec.md"
   - `okw ai verify ... --smoke-ocr /tmp/okw_smoke.png` → 退出 **0**，「本地图片离线识别成功（chi_sim+eng，识别 38 字符）」；全程未改源/默认发行版、未触网、未下载模型、未碰密钥。
   - 过程中 WSL 曾因中断 drvfs 访问而卡死，经 `wsl --shutdown` 恢复；该环境插曲不影响上述只读结论。
 
+## Issue I-1: 补齐 AI 命令/文档“如何查发行版名”指引
+
+- **Status**: `completed`
+- **Priority**: medium
+- **Source**: 独立审查（review.md，F-1）→ 命中 AC-9 字段③“任一缺失即不通过”
+- **Description**:
+  - `ai install`/`ai verify` 的位置参数 `name` 帮助仅“发行版名称”（preflight 已含“（wsl -l -v 查看）”）；README AI 段与 `07-ai-stack.md` 入门段也未说明如何查发行版名。
+  - 修复：两处 name help 补“（wsl -l -v 查看）”；README AI 段与 07 入门段各加一句查名指引；再生成 `tests/snapshots/cli_surface.json`；复跑命令面守卫与全量测试。
+- **Acceptance Criteria Addressed**: AC-9
+- **Test Requirements**:
+  - `rule` TR-I1.1：`ai preflight|install|verify` 三个 name help 文本一致且均含 `wsl -l -v`；快照与实际逐字一致。
+  - `rule` TR-I1.2：README 与 07 指南均给出查名方法；命令面守卫与全量测试通过。
+- **Completion Evidence**（2026-10-13）:
+  - `parser.py` 三处 AI name help 统一为“发行版名称（wsl -l -v 查看）”；快照 `cli_surface.json` 第 479/499/531 行逐字一致（已再生成）。
+  - README AI 段新增“先 `wsl -l -v` 查看 name、图片路径须在发行版内”一段；`07-ai-stack.md` 在三步前新增“先确认 `<name>`”引用块。
+  - 全量复跑 **502 项通过**、TOTAL **97%**、`ai.py` **97%**，无回归。
+
+## Issue I-2: 修正 README 冒烟图片路径表述（支持盘符路径）
+
+- **Status**: `completed`
+- **Priority**: medium
+- **Source**: 独立审查 R2（review.md，F-2）→ 命中 AC-9/AC-8“多入口不一致即不通过”
+- **Description**:
+  - 修复 I-1 时在 README AI 段误写“`--smoke-ocr` …不支持直接给 Windows 盘符路径”，与实现 `ai.to_distro_image_path`（盘符→`/mnt/<drive>/`，有测试）、`07-ai-stack.md`（记录盘符自动转换）及审查者只读实测相矛盾。
+  - 修复：仅改 README 该句为“图片可给发行版内路径，也支持 Windows 盘符路径（自动转 `/mnt/<drive>`、经 drvfs 访问）”；不涉代码/快照。
+- **Acceptance Criteria Addressed**: AC-8, AC-9
+- **Test Requirements**:
+  - `rule` TR-I2.1：README 表述与 ai.py/07 指南一致（均支持盘符路径自动转换）；不引入新的跨入口矛盾。
+- **Completion Evidence**（2026-10-13）:
+  - README AI 段改为：图片可给发行版内路径（`/tmp/sample.png`），也支持 Windows 盘符路径（`C:\Users\me\sample.png` → `/mnt/c/Users/me/sample.png`、经 drvfs）。
+  - 与 `07-ai-stack.md:65-66`、`ai.to_distro_image_path` 及其测试表述逐字一致；本次仅改文档、未改代码/快照，测试结果不变（502 项通过、TOTAL 97%）。
+
 ## Task Dependencies
 
 - Task 1 是只读预检基础；Task 2 与 Task 3 依赖 Task 1，可在其完成后并行实施。
